@@ -1,0 +1,19 @@
+{
+  "pricing": {
+    "title": "Pricing",
+    "subtitle": "Subscriptions with entitlements derived from the subscription itself — not copied onto the user.",
+    "perMonth": "/month",
+    "free": "Free",
+    "choose": "Choose {plan}",
+    "current": "Current plan",
+    "includes": "Includes",
+    "quota": "{count} AI messages per month"
+  },
+  "billing": {
+    "successTitle": "Payment received",
+    "successBody": "Your plan activates as soon as the webhook lands — usually within a second.",
+    "cancelTitle": "Checkout cancelled",
+    "cancelBody": "Nothing was charged. You can pick a plan again whenever you like.",
+    "back": "Back to pricing"
+  }
+}

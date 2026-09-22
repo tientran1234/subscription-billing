@@ -1,0 +1,19 @@
+{
+  "pricing": {
+    "title": "Bảng giá",
+    "subtitle": "Quyền sử dụng được suy ra từ chính gói đăng ký, không sao chép sang bản ghi người dùng.",
+    "perMonth": "/tháng",
+    "free": "Miễn phí",
+    "choose": "Chọn gói {plan}",
+    "current": "Gói hiện tại",
+    "includes": "Bao gồm",
+    "quota": "{count} tin nhắn AI mỗi tháng"
+  },
+  "billing": {
+    "successTitle": "Đã nhận thanh toán",
+    "successBody": "Gói của bạn được kích hoạt ngay khi webhook về, thường trong vòng một giây.",
+    "cancelTitle": "Đã huỷ thanh toán",
+    "cancelBody": "Chưa trừ tiền. Bạn có thể chọn lại gói bất cứ lúc nào.",
+    "back": "Quay lại bảng giá"
+  }
+}
