@@ -13,6 +13,7 @@ model Tenant {
   name          String
   subscriptions Subscription[]
   usage         UsageCounter[]
+  apiKeys       ApiKey[]
   createdAt     DateTime       @default(now())
 }
 
@@ -56,4 +57,23 @@ model UsageCounter {
   used     Int    @default(0)
 
   @@id([tenantId, feature, period])
+}
+
+/// A machine credential for a tenant. Only the hash is stored; the raw key is
+/// returned once at creation and cannot be recovered.
+model ApiKey {
+  id         String    @id @default(cuid())
+  tenantId   String
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  keyHash    String    @unique
+  /// Display-only, e.g. "sk_live_3f9a1c" — enough to recognise a key in a list.
+  prefix     String
+  scopes     String[]
+  /// Requests per UTC month. Null means unmetered.
+  quotaLimit Int?
+  revokedAt  DateTime?
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([tenantId])
 }
