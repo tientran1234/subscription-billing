@@ -1,0 +1,59 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Tenant {
+  id            String         @id @default(cuid())
+  email         String         @unique
+  name          String
+  subscriptions Subscription[]
+  usage         UsageCounter[]
+  createdAt     DateTime       @default(now())
+}
+
+/// One row per subscription attempt. `status` only ever moves forward through
+/// the transitions declared in src/domain/subscription.ts.
+model Subscription {
+  id               String    @id @default(cuid())
+  tenantId         String
+  tenant           Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  planKey          String
+  status           String
+  provider         String    @default("stripe")
+  /// Provider's subscription id. Arrives on the first webhook, not at checkout.
+  providerRef      String?   @unique
+  /// Provider's checkout session id. Known immediately, so webhooks that carry
+  /// only the session can still find this row.
+  checkoutRef      String?   @unique
+  currentPeriodEnd DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([tenantId, status])
+}
+
+/// Idempotency gate. The provider's event id is the primary key, so a duplicate
+/// delivery fails the insert instead of being processed twice.
+model WebhookEvent {
+  providerEventId String   @id
+  provider        String
+  type            String
+  subscriptionId  String?
+  receivedAt      DateTime @default(now())
+}
+
+/// Metered usage per tenant, per feature, per UTC month.
+model UsageCounter {
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  feature  String
+  period   String
+  used     Int    @default(0)
+
+  @@id([tenantId, feature, period])
+}
