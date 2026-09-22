@@ -1,23 +1,29 @@
 /**
- * A paid feature, gated the way every paid feature should be: entitlement check
- * first (does this plan include it at all), quota second (is there budget left
- * this month). Both derive from the subscription, so a cancelled tenant loses
- * access on the next request — no background job, nothing to fall out of sync.
+ * A paid feature behind three gates, in this order:
+ *
+ *   1. API key  — who is calling, and may this key call this at all (scope)
+ *   2. entitlement — does the tenant's plan include the feature
+ *   3. quota    — is there budget left this month
+ *
+ * All three derive from rows that change on the next webhook or revocation, so
+ * a cancelled tenant or a revoked key loses access on the next request — no
+ * background job, nothing to fall out of sync.
  */
 import { z } from "zod";
 import { canUse, quotaFor } from "@/domain/entitlements";
 import { entitlementsForTenant } from "@/server/billing.service";
 import { meter } from "@/server/usage";
+import { withApiKey } from "@/server/with-api-key";
 
 export const runtime = "nodejs";
 
-const Body = z.object({ tenantId: z.string().min(1), prompt: z.string().min(1) });
+const Body = z.object({ prompt: z.string().min(1) });
 
-export async function POST(request: Request) {
+export const POST = withApiKey("assistant:use", async (request, { tenantId }) => {
   const parsed = Body.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "invalid body" }, { status: 400 });
 
-  const entitlements = await entitlementsForTenant(parsed.data.tenantId);
+  const entitlements = await entitlementsForTenant(tenantId);
   if (!canUse(entitlements, "assistant")) {
     return Response.json(
       { error: "not included in your plan", planKey: entitlements.planKey },
@@ -25,16 +31,9 @@ export async function POST(request: Request) {
     );
   }
 
-  const usage = await meter(
-    parsed.data.tenantId,
-    "aiMessages",
-    quotaFor(entitlements, "aiMessages"),
-  );
+  const usage = await meter(tenantId, "aiMessages", quotaFor(entitlements, "aiMessages"));
   if (!usage.allowed) {
-    return Response.json(
-      { error: "monthly quota exceeded", ...usage },
-      { status: 429, headers: { "x-quota-used": String(usage.used) } },
-    );
+    return Response.json({ error: "monthly quota exceeded", ...usage }, { status: 429 });
   }
 
   // Swap this for a real model call. Everything above is the part that has to
@@ -44,4 +43,4 @@ export async function POST(request: Request) {
     planKey: entitlements.planKey,
     quota: usage,
   });
-}
+});

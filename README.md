@@ -63,6 +63,15 @@ Stripe retry something that will never succeed.
 `UPDATE ... SET used = used + 1 RETURNING used`, so two concurrent requests
 cannot both read 49 and both write 50.
 
+**API keys are hashed, scoped and metered.**
+A key is `sk_<env>_<48 hex>`; only its SHA-256 is stored, the raw value is
+returned once. Scopes (`billing:read`, `assistant:use`, …, with `ns:*` and `*`
+for admins) are checked before the handler runs; a monthly quota is counted on
+every call and answers 429 once exceeded, with `x-quota-used` / `x-quota-limit`
+on every response so clients can back off before being cut off. Unknown and
+revoked keys return the same 401 — a distinct message would confirm the key
+once existed.
+
 ## Layout
 
 ```
@@ -80,9 +89,10 @@ src/
   app/
     api/webhooks/stripe  verify → claim → apply
     api/checkout         start a subscription
-    api/assistant        a paid feature: entitlement gate, then quota gate
+    api/keys             mint / revoke API keys (hash stored, raw shown once)
+    api/assistant        a paid feature: api key → scope → entitlement → quota
     [locale]/            pricing page, en + vi
-tests/               21 unit + 7 integration against real Postgres
+tests/               29 unit + 12 integration against real Postgres
 ```
 
 ## Run it
@@ -114,7 +124,9 @@ on every push.
   emails the customer or decides when retries run out.
 - **Tax, invoices, receipts.** Stripe Tax and hosted invoices cover this better
   than an application ever will.
-- **Auth.** `tenantId` arrives in the request body. In a real deployment it comes
-  from the session, and the routes gain an ownership check.
+- **Human auth.** Machine callers authenticate with API keys; a person minting a
+  key or starting a checkout still passes `tenantId` in the body. In a real
+  deployment that comes from the session, and those routes gain an ownership
+  check.
 - **A real model call.** `/api/assistant` returns a stub. The entitlement and
   quota gates in front of it are the part that has to be right first.
