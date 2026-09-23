@@ -14,7 +14,74 @@ model Tenant {
   subscriptions Subscription[]
   usage         UsageCounter[]
   apiKeys       ApiKey[]
+  members       Membership[]
   createdAt     DateTime       @default(now())
+}
+
+/// A signed-in person. Auth.js owns these rows; nothing here is billed.
+model User {
+  id            String       @id @default(cuid())
+  name          String?
+  email         String       @unique
+  emailVerified DateTime?
+  image         String?
+  accounts      Account[]
+  sessions      Session[]
+  memberships   Membership[]
+  createdAt     DateTime     @default(now())
+}
+
+/// Which tenants a user may act for. The join is the ownership check: routes
+/// resolve a tenant out of these rows and never out of the request body.
+model Membership {
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@id([userId, tenantId])
+  @@index([tenantId])
+}
+
+/// Auth.js: a linked external identity. Unused by magic links, but the Prisma
+/// adapter reads and writes it, so the model has to exist.
+model Account {
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([provider, providerAccountId])
+}
+
+/// Auth.js: server-side sessions. Sessions live in Postgres rather than in a
+/// JWT so that revoking access takes effect on the next request, the same way
+/// a revoked API key does.
+model Session {
+  sessionToken String   @id
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+/// Auth.js: the single-use magic-link token emailed to the address signing in.
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@id([identifier, token])
 }
 
 /// One row per subscription attempt. `status` only ever moves forward through
