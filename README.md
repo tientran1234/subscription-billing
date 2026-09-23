@@ -63,6 +63,16 @@ Stripe retry something that will never succeed.
 `UPDATE ... SET used = used + 1 RETURNING used`, so two concurrent requests
 cannot both read 49 and both write 50.
 
+**People sign in; machines carry keys.**
+A person gets a magic link — Auth.js, sessions in Postgres, no password to
+leak. `withSession` resolves the tenant out of the session's membership rows,
+`withApiKey` out of the key; neither reads a `tenantId` off the body, and both
+bodies are `.strict()`, so a client still sending one gets a 400 rather than
+quietly acting on someone else's tenant. A user who belongs to several tenants
+names one in `x-tenant-id`, which can only narrow what their session already
+grants. Revocation is scoped by the `UPDATE` itself, so the affected-row count
+is the ownership check and there is no read-then-write window.
+
 **API keys are hashed, scoped and metered.**
 A key is `sk_<env>_<48 hex>`; only its SHA-256 is stored, the raw value is
 returned once. Scopes (`billing:read`, `assistant:use`, …, with `ns:*` and `*`
@@ -80,26 +90,29 @@ src/
     billing-event.ts   IBillingProvider + neutral DTOs (the contract)
     subscription.ts    status enum + legal transitions + event mapping
     entitlements.ts    plans, features, quotas; entitlements as a pure function
+    membership.ts      which tenant a signed-in caller may act for
   providers/
     stripe.ts      the ONLY file importing `stripe`
     fake.ts        in-memory provider — full flow with no Stripe account
   server/
     billing.service.ts  the only place a subscription status changes
     usage.ts            metered quota
+    with-session.ts     session → tenant, for human callers
   app/
     api/webhooks/stripe  verify → claim → apply
-    api/checkout         start a subscription
+    api/auth             Auth.js magic-link sign-in
+    api/checkout         start a subscription (tenant from the session)
     api/keys             mint / revoke API keys (hash stored, raw shown once)
     api/assistant        a paid feature: api key → scope → entitlement → quota
     [locale]/            pricing page, en + vi
-tests/               29 unit + 12 integration against real Postgres
+tests/               41 unit + 13 integration against real Postgres
 ```
 
 ## Run it
 
 ```bash
 pnpm install
-cp .env.example .env        # fill in Stripe test keys
+cp .env.example .env        # fill in Stripe test keys and an SMTP url
 pnpm db:up                  # Postgres on :5433
 pnpm db:push
 pnpm dev
@@ -107,6 +120,10 @@ pnpm dev
 # in another terminal — gives you STRIPE_WEBHOOK_SECRET
 pnpm stripe:listen
 ```
+
+Sign in at `/api/auth/signin` — Auth.js's own page is enough to click a magic
+link. First sign-in provisions a tenant for the address, or joins the tenant
+already seeded with it.
 
 ```bash
 pnpm test        # unit tests run anywhere; integration tests need DATABASE_URL
@@ -124,9 +141,8 @@ on every push.
   emails the customer or decides when retries run out.
 - **Tax, invoices, receipts.** Stripe Tax and hosted invoices cover this better
   than an application ever will.
-- **Human auth.** Machine callers authenticate with API keys; a person minting a
-  key or starting a checkout still passes `tenantId` in the body. In a real
-  deployment that comes from the session, and those routes gain an ownership
-  check.
+- **Invites and roles.** A membership is provisioned for the address that signs
+  in; there is nothing that adds a second person to a tenant, and every member
+  can do everything.
 - **A real model call.** `/api/assistant` returns a stub. The entitlement and
   quota gates in front of it are the part that has to be right first.
