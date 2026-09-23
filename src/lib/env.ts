@@ -14,11 +14,28 @@ const schema = z.object({
   APP_URL: z.string().url(),
 });
 
+/**
+ * Auth settings are parsed separately so a missing SMTP host breaks sign-in
+ * only, and not checkout or the webhook route that never look at it.
+ */
+const authSchema = z.object({
+  AUTH_SECRET: z.string().min(1),
+  /** SMTP connection string, e.g. smtp://user:pass@host:587 */
+  EMAIL_SERVER: z.string().min(1),
+  EMAIL_FROM: z.string().email(),
+});
+
 let cached: z.infer<typeof schema> | null = null;
+let cachedAuth: z.infer<typeof authSchema> | null = null;
 
 export function env() {
   if (!cached) cached = schema.parse(process.env);
   return cached;
+}
+
+export function authEnv() {
+  if (!cachedAuth) cachedAuth = authSchema.parse(process.env);
+  return cachedAuth;
 }
 
 /** Provider-side price id for a plan. Free has no price — it never checks out. */

@@ -47,8 +47,17 @@ export async function createApiKey(
   return { raw, key };
 }
 
-export async function revokeApiKey(id: string): Promise<void> {
-  await db.apiKey.update({ where: { id }, data: { revokedAt: new Date() } });
+/**
+ * Revoke a key belonging to `tenantId`. Scoped by update rather than read
+ * then write: the affected-row count is both the ownership check and the
+ * answer, so there is no window where the row changes hands in between.
+ */
+export async function revokeApiKey(id: string, tenantId: string): Promise<boolean> {
+  const { count } = await db.apiKey.updateMany({
+    where: { id, tenantId },
+    data: { revokedAt: new Date() },
+  });
+  return count === 1;
 }
 
 /** Raw key → record. Throws 401 for anything that should look identical to the caller. */

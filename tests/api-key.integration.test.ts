@@ -30,8 +30,16 @@ describe.skipIf(!hasDatabase)("api keys", () => {
     const { raw, key } = await createApiKey({ tenantId, env: "test", scopes: ["billing:read"] });
     await expect(authenticate("sk_test_" + "0".repeat(48))).rejects.toMatchObject({ status: 401 });
 
-    await revokeApiKey(key.id);
+    expect(await revokeApiKey(key.id, tenantId)).toBe(true);
     await expect(authenticate(raw)).rejects.toMatchObject({ status: 401, message: "invalid api key" });
+  });
+
+  it("will not revoke a key belonging to another tenant", async () => {
+    const other = await db.tenant.create({ data: { email: `o${Date.now()}@example.test`, name: "O" } });
+    const { raw, key } = await createApiKey({ tenantId, env: "test", scopes: ["billing:read"] });
+
+    expect(await revokeApiKey(key.id, other.id)).toBe(false);
+    expect((await authenticate(raw)).id).toBe(key.id);
   });
 
   it("refuses a scope the key was not granted", async () => {
