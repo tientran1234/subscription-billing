@@ -47,9 +47,29 @@ export interface CreateCheckoutResult {
   checkoutRef: string;
 }
 
+export interface CreatePortalInput {
+  /** Provider-side customer id, resolved from the caller's own tenant. */
+  customerRef: string;
+  /** Where the provider sends the customer back when they are done. */
+  returnUrl: string;
+}
+
+export interface CreatePortalResult {
+  portalUrl: string;
+}
+
 export interface IBillingProvider {
   readonly name: string;
   createCheckout(input: CreateCheckoutInput): Promise<CreateCheckoutResult>;
+  /**
+   * A short-lived, authenticated link into the provider's own billing portal,
+   * where the customer cancels, resumes or updates their card.
+   *
+   * Deliberately the only subscription-changing capability in this interface:
+   * every such change is made on the provider's side and reaches us as a
+   * webhook, so the state machine stays the one path a status can move along.
+   */
+  createPortalSession(input: CreatePortalInput): Promise<CreatePortalResult>;
   /**
    * Verify the signature over the RAW request bytes, then normalize.
    * Throws {@link WebhookVerificationError} when the signature does not match.

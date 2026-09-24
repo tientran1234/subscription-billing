@@ -15,5 +15,19 @@
     "cancelTitle": "Checkout cancelled",
     "cancelBody": "Nothing was charged. You can pick a plan again whenever you like.",
     "back": "Back to pricing"
+  },
+  "account": {
+    "title": "Account",
+    "subtitle": "What this workspace may do right now, derived from its subscription rather than stored on it.",
+    "portal": "Manage billing",
+    "portalOpening": "Opening…",
+    "portalEmpty": "Pick a plan first — there is nothing to manage yet.",
+    "portalFailed": "Could not open the billing portal. Try again in a moment.",
+    "portalNote": "Cancelling, resuming and card changes happen at Stripe. This app never edits a subscription itself; it reads the result back from the webhook.",
+    "signedOut": "Sign in to see this workspace's plan and billing.",
+    "signIn": "Sign in",
+    "noTenant": "This account does not belong to a workspace yet.",
+    "ambiguous": "This account belongs to several workspaces, and choosing between them is not built yet.",
+    "backToPricing": "Back to pricing"
   }
 }

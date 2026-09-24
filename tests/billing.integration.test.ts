@@ -7,9 +7,10 @@
  */
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
-import { applyEvent, entitlementsForTenant } from "@/server/billing.service";
+import { applyEvent, entitlementsForTenant, startPortalSession } from "@/server/billing.service";
 import { meter } from "@/server/usage";
 import type { BillingEvent } from "@/domain/billing-event";
+import { FakeProvider } from "@/providers/fake";
 
 const hasDatabase = Boolean(process.env.DATABASE_URL);
 
@@ -112,5 +113,97 @@ describe.skipIf(!hasDatabase)("billing service", () => {
       Array.from({ length: 8 }, () => meter(tenantId, "aiMessages", 100)),
     );
     expect(Math.max(...results.map((r) => r.used))).toBe(8);
+  });
+});
+
+describe.skipIf(!hasDatabase)("billing portal", () => {
+  // The fake provider puts the customer it was asked about into the URL, which
+  // is what lets these assertions see WHOSE portal was opened.
+  const provider = new FakeProvider();
+  let tenantId: string;
+
+  const tenant = async (email: string) =>
+    (await db.tenant.create({ data: { email, name: email } })).id;
+
+  beforeEach(async () => {
+    await db.tenant.deleteMany();
+    tenantId = await tenant(`portal${Date.now()}@example.test`);
+  });
+
+  afterAll(async () => {
+    await db.$disconnect();
+  });
+
+  it("has nothing to open before the first webhook has landed", async () => {
+    await db.subscription.create({ data: { tenantId, planKey: "pro", status: "PENDING" } });
+    expect(await startPortalSession(provider, { tenantId, appUrl: "https://x" })).toEqual({
+      ok: false,
+      reason: "no_customer",
+    });
+  });
+
+  it("opens for the customer the tenant's newest subscription is billed to", async () => {
+    // Explicit timestamps: the rule is "newest customer", and two rows created
+    // in the same millisecond would not test it.
+    await db.subscription.create({
+      data: {
+        tenantId,
+        planKey: "pro",
+        status: "CANCELED",
+        customerRef: "cus_old",
+        createdAt: new Date("2026-01-01"),
+      },
+    });
+    await db.subscription.create({
+      data: {
+        tenantId,
+        planKey: "scale",
+        status: "ACTIVE",
+        customerRef: "cus_current",
+        createdAt: new Date("2026-06-01"),
+      },
+    });
+
+    const result = await startPortalSession(provider, { tenantId, appUrl: "https://x" });
+    expect(result).toMatchObject({ ok: true });
+    expect(result.ok && result.portalUrl).toContain("cus_current");
+  });
+
+  it("never opens another tenant's portal", async () => {
+    const otherId = await tenant(`other${Date.now()}@example.test`);
+    // The other tenant's row is the NEWEST in the table, so a lookup that
+    // forgot to filter by tenant would hand this caller that customer.
+    await db.subscription.create({
+      data: {
+        tenantId,
+        planKey: "pro",
+        status: "ACTIVE",
+        customerRef: "cus_mine",
+        createdAt: new Date("2026-01-01"),
+      },
+    });
+    await db.subscription.create({
+      data: {
+        tenantId: otherId,
+        planKey: "pro",
+        status: "ACTIVE",
+        customerRef: "cus_victim",
+        createdAt: new Date("2026-06-01"),
+      },
+    });
+
+    const result = await startPortalSession(provider, { tenantId, appUrl: "https://x" });
+    expect(result.ok && result.portalUrl).toContain("cus_mine");
+    expect(result.ok && result.portalUrl).not.toContain("cus_victim");
+  });
+
+  it("sends the customer back to the account page when they are done", async () => {
+    await db.subscription.create({
+      data: { tenantId, planKey: "pro", status: "ACTIVE", customerRef: "cus_mine" },
+    });
+    const result = await startPortalSession(provider, { tenantId, appUrl: "https://app.test" });
+    expect(result.ok && decodeURIComponent(result.portalUrl)).toContain(
+      "https://app.test/account",
+    );
   });
 });

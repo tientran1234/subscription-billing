@@ -8,6 +8,8 @@ import {
   type BillingEvent,
   type CreateCheckoutInput,
   type CreateCheckoutResult,
+  type CreatePortalInput,
+  type CreatePortalResult,
   type IBillingProvider,
   WebhookVerificationError,
 } from "@/domain/billing-event";
@@ -20,6 +22,11 @@ export class FakeProvider implements IBillingProvider {
   async createCheckout(input: CreateCheckoutInput): Promise<CreateCheckoutResult> {
     const checkoutRef = `cs_fake_${input.subscriptionId}`;
     return { checkoutUrl: `https://fake.checkout/${checkoutRef}`, checkoutRef };
+  }
+
+  async createPortalSession(input: CreatePortalInput): Promise<CreatePortalResult> {
+    const returnTo = encodeURIComponent(input.returnUrl);
+    return { portalUrl: `https://fake.portal/${input.customerRef}?return_to=${returnTo}` };
   }
 
   /** Sign a payload the way the fake gateway would — test helper. */

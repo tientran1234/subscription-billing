@@ -16,8 +16,23 @@ function contract(name: string, make: () => IBillingProvider) {
         provider.verifyWebhook('{"providerEventId":"evt_1"}', "not-a-signature"),
       ).rejects.toBeInstanceOf(WebhookVerificationError);
     });
+
+    // The list is exhaustive on purpose. A subscription's status may only
+    // change through the state machine in applyEvent, so the only way this app
+    // is allowed to offer a cancel or a card update is by handing the customer
+    // a link to the provider's own portal. An adapter growing a
+    // `cancelSubscription` would be a second writer, and fails here.
+    it("exposes no way to change a subscription itself", () => {
+      const methods = Object.getOwnPropertyNames(Object.getPrototypeOf(make()))
+        .filter((m) => m !== "constructor" && !EXTRAS[name]?.includes(m))
+        .sort();
+      expect(methods).toEqual(["createCheckout", "createPortalSession", "verifyWebhook"]);
+    });
   });
 }
+
+/** Helpers a provider may add for the tests — never part of the contract. */
+const EXTRAS: Record<string, string[]> = { fake: ["sign"] };
 
 contract("fake", () => new FakeProvider());
 contract("stripe", () => new StripeProvider("sk_test_x", "whsec_x"));
@@ -32,6 +47,15 @@ describe("fake provider", () => {
     });
     const event = await provider.verifyWebhook(body, provider.sign(body));
     expect(event).toMatchObject({ providerEventId: "evt_1", type: "subscription_activated" });
+  });
+
+  it("returns a portal url for the customer it was asked about", async () => {
+    const { portalUrl } = await new FakeProvider().createPortalSession({
+      customerRef: "cus_local",
+      returnUrl: "https://x/account",
+    });
+    expect(portalUrl).toMatch(/^https?:\/\//);
+    expect(portalUrl).toContain("cus_local");
   });
 
   it("returns a checkout url and a reference", async () => {

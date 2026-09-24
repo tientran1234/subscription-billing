@@ -15,5 +15,19 @@
     "cancelTitle": "Đã huỷ thanh toán",
     "cancelBody": "Chưa trừ tiền. Bạn có thể chọn lại gói bất cứ lúc nào.",
     "back": "Quay lại bảng giá"
+  },
+  "account": {
+    "title": "Tài khoản",
+    "subtitle": "Quyền sử dụng hiện tại của workspace này, được suy ra từ gói đăng ký chứ không lưu sẵn.",
+    "portal": "Quản lý thanh toán",
+    "portalOpening": "Đang mở…",
+    "portalEmpty": "Hãy chọn một gói trước — hiện chưa có gì để quản lý.",
+    "portalFailed": "Không mở được cổng thanh toán. Vui lòng thử lại sau giây lát.",
+    "portalNote": "Việc huỷ, khôi phục và đổi thẻ đều diễn ra tại Stripe. Ứng dụng không bao giờ tự sửa gói đăng ký; nó chỉ đọc lại kết quả từ webhook.",
+    "signedOut": "Đăng nhập để xem gói và thông tin thanh toán của workspace này.",
+    "signIn": "Đăng nhập",
+    "noTenant": "Tài khoản này chưa thuộc workspace nào.",
+    "ambiguous": "Tài khoản này thuộc nhiều workspace, và phần chọn workspace chưa được xây dựng.",
+    "backToPricing": "Quay lại bảng giá"
   }
 }

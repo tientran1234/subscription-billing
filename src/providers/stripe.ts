@@ -12,6 +12,8 @@ import {
   type BillingEventType,
   type CreateCheckoutInput,
   type CreateCheckoutResult,
+  type CreatePortalInput,
+  type CreatePortalResult,
   type IBillingProvider,
   WebhookVerificationError,
 } from "@/domain/billing-event";
@@ -78,6 +80,14 @@ export class StripeProvider implements IBillingProvider {
     });
     if (!session.url) throw new Error("Stripe returned a session with no URL");
     return { checkoutUrl: session.url, checkoutRef: session.id };
+  }
+
+  async createPortalSession(input: CreatePortalInput): Promise<CreatePortalResult> {
+    const session = await this.stripe.billingPortal.sessions.create({
+      customer: input.customerRef,
+      return_url: input.returnUrl,
+    });
+    return { portalUrl: session.url };
   }
 
   async verifyWebhook(rawBody: string, signature: string): Promise<BillingEvent> {

@@ -7,6 +7,7 @@
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import type { BillingEvent, IBillingProvider } from "@/domain/billing-event";
+import { portalCustomerFor } from "@/domain/portal";
 import { predecessorsOf, statusForEvent } from "@/domain/subscription";
 import { entitlementsFor, type Entitlements } from "@/domain/entitlements";
 
@@ -59,6 +60,40 @@ export async function startCheckout(
 
   await db.subscription.update({ where: { id: subscription.id }, data: { checkoutRef } });
   return { subscriptionId: subscription.id, checkoutUrl };
+}
+
+export type PortalResult =
+  | { ok: true; portalUrl: string }
+  /** Nothing to manage: this tenant has no customer with the provider yet. */
+  | { ok: false; reason: "no_customer" };
+
+/**
+ * A link into the provider's billing portal for the tenant the caller already
+ * proved they may act for.
+ *
+ * The customer is looked up from that tenant's own rows and is never accepted
+ * from the request, so the worst a caller can do with this endpoint is open
+ * their own portal. Nothing here changes a subscription: cancelling and
+ * resuming happen at the provider and come back as webhooks, which is what
+ * keeps applyEvent the only writer of `status`.
+ */
+export async function startPortalSession(
+  provider: IBillingProvider,
+  input: { tenantId: string; appUrl: string },
+): Promise<PortalResult> {
+  const subscriptions = await db.subscription.findMany({
+    where: { tenantId: input.tenantId },
+    select: { customerRef: true, createdAt: true },
+  });
+
+  const customerRef = portalCustomerFor(subscriptions);
+  if (!customerRef) return { ok: false, reason: "no_customer" };
+
+  const { portalUrl } = await provider.createPortalSession({
+    customerRef,
+    returnUrl: `${input.appUrl}/account`,
+  });
+  return { ok: true, portalUrl };
 }
 
 export async function applyEvent(
