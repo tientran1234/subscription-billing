@@ -98,6 +98,10 @@ model Subscription {
   /// Provider's checkout session id. Known immediately, so webhooks that carry
   /// only the session can still find this row.
   checkoutRef      String?   @unique
+  /// Provider's customer id, learned from the first webhook. Not unique: a
+  /// tenant that cancels and subscribes again keeps the same customer across
+  /// both rows. This is what the billing portal opens for.
+  customerRef      String?
   currentPeriodEnd DateTime?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt

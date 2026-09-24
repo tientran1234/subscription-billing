@@ -56,6 +56,7 @@ describe("stripe normalisation", () => {
       stripeEvent("checkout.session.completed", {
         id: "cs_1",
         subscription: "sub_1",
+        customer: "cus_1",
         metadata: { planKey: "pro" },
       }),
     );
@@ -63,6 +64,7 @@ describe("stripe normalisation", () => {
       type: "subscription_activated",
       checkoutRef: "cs_1",
       providerRef: "sub_1",
+      customerRef: "cus_1",
       planKey: "pro",
     });
   });
@@ -96,6 +98,25 @@ describe("stripe normalisation", () => {
     expect(
       normalize(stripeEvent("customer.subscription.deleted", { id: "sub_5" })),
     ).toMatchObject({ type: "subscription_canceled", providerRef: "sub_5" });
+  });
+
+  // The customer id reaches us on webhooks and nowhere else, so every event
+  // that carries one has to surface it — miss one and a tenant whose only
+  // event was a renewal or a failed payment can never open the portal.
+  it("carries the customer id on renewals and failed payments too", () => {
+    expect(
+      normalize(stripeEvent("invoice.paid", { subscription: "sub_6", customer: "cus_6" }))
+        .customerRef,
+    ).toBe("cus_6");
+    expect(
+      normalize(
+        stripeEvent("invoice.payment_failed", { subscription: "sub_7", customer: "cus_7" }),
+      ).customerRef,
+    ).toBe("cus_7");
+    expect(
+      normalize(stripeEvent("customer.subscription.deleted", { id: "sub_8", customer: "cus_8" }))
+        .customerRef,
+    ).toBe("cus_8");
   });
 
   it("marks anything it does not handle as unknown rather than guessing", () => {

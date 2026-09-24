@@ -24,14 +24,17 @@ import {
 interface SessionLike {
   id: string;
   subscription?: string | { id: string } | null;
+  customer?: string | { id: string } | null;
   metadata?: Record<string, string> | null;
 }
 interface InvoiceLike {
   subscription?: string | { id: string } | null;
+  customer?: string | { id: string } | null;
   lines?: { data?: Array<{ period?: { end?: number } }> };
 }
 interface SubscriptionLike {
   id: string;
+  customer?: string | { id: string } | null;
   current_period_end?: number;
   metadata?: Record<string, string> | null;
 }
@@ -101,6 +104,7 @@ export function normalize(event: Stripe.Event): BillingEvent {
         type: "subscription_activated",
         checkoutRef: s.id,
         providerRef: refOf(s.subscription),
+        customerRef: refOf(s.customer),
         planKey: s.metadata?.planKey,
       };
     }
@@ -113,18 +117,29 @@ export function normalize(event: Stripe.Event): BillingEvent {
         ...base,
         type: "subscription_activated",
         providerRef: refOf(i.subscription),
+        customerRef: refOf(i.customer),
         currentPeriodEnd: secondsToDate(i.lines?.data?.[0]?.period?.end),
       };
     }
 
     case "invoice.payment_failed": {
       const i = object as InvoiceLike;
-      return { ...base, type: "payment_failed", providerRef: refOf(i.subscription) };
+      return {
+        ...base,
+        type: "payment_failed",
+        providerRef: refOf(i.subscription),
+        customerRef: refOf(i.customer),
+      };
     }
 
     case "customer.subscription.deleted": {
       const s = object as SubscriptionLike;
-      return { ...base, type: "subscription_canceled", providerRef: s.id };
+      return {
+        ...base,
+        type: "subscription_canceled",
+        providerRef: s.id,
+        customerRef: refOf(s.customer),
+      };
     }
 
     default:

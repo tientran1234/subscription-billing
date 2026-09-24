@@ -102,6 +102,7 @@ export async function applyEvent(
     data: {
       status: target,
       ...(event.providerRef ? { providerRef: event.providerRef } : {}),
+      ...(event.customerRef ? { customerRef: event.customerRef } : {}),
       ...(event.currentPeriodEnd ? { currentPeriodEnd: event.currentPeriodEnd } : {}),
     },
   });
@@ -113,7 +114,10 @@ export async function applyEvent(
   if (target === "ACTIVE" && subscription.status === "ACTIVE" && event.currentPeriodEnd) {
     await db.subscription.update({
       where: { id: subscription.id },
-      data: { currentPeriodEnd: event.currentPeriodEnd },
+      data: {
+        currentPeriodEnd: event.currentPeriodEnd,
+        ...(event.customerRef ? { customerRef: event.customerRef } : {}),
+      },
     });
     return "renewed";
   }

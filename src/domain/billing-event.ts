@@ -22,6 +22,12 @@ export interface BillingEvent {
   providerRef?: string;
   /** Provider's checkout session id, when the event carries one. */
   checkoutRef?: string;
+  /**
+   * Provider's customer id. Not known at checkout — it is created by the
+   * provider and only ever reaches us on a webhook, which is why it is stored
+   * from here rather than written when the subscription row is created.
+   */
+  customerRef?: string;
   planKey?: string;
   currentPeriodEnd?: Date;
 }
