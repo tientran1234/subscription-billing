@@ -63,6 +63,17 @@ Stripe retry something that will never succeed.
 `UPDATE ... SET used = used + 1 RETURNING used`, so two concurrent requests
 cannot both read 49 and both write 50.
 
+**Cancelling happens at Stripe, not here.**
+The account page hands the customer a link into Stripe's billing portal, where
+they cancel, resume or update a card; the change comes back as a webhook like
+any other. An in-app cancel would be a second writer of `status`, racing the
+webhook reporting the very same change — and nothing sensible happens when the
+two disagree. So `IBillingProvider` has no method that edits a subscription,
+and the conformance suite pins each adapter's method surface so one cannot be
+added by accident. The portal link is minted per click, because Stripe's is
+single-use and expires in minutes. The customer id it opens for is resolved
+from the caller's own tenant, never read off the request.
+
 **People sign in; machines carry keys.**
 A person gets a magic link — Auth.js, sessions in Postgres, no password to
 leak. `withSession` resolves the tenant out of the session's membership rows,
@@ -104,8 +115,9 @@ src/
     api/checkout         start a subscription (tenant from the session)
     api/keys             mint / revoke API keys (hash stored, raw shown once)
     api/assistant        a paid feature: api key → scope → entitlement → quota
-    [locale]/            pricing page, en + vi
-tests/               41 unit + 13 integration against real Postgres
+    api/portal           a link into Stripe's billing portal, for the caller's tenant
+    [locale]/            pricing and account pages, en + vi
+tests/               49 unit + 17 integration against real Postgres
 ```
 
 ## Run it
@@ -123,7 +135,9 @@ pnpm stripe:listen
 
 Sign in at `/api/auth/signin` — Auth.js's own page is enough to click a magic
 link. First sign-in provisions a tenant for the address, or joins the tenant
-already seeded with it.
+already seeded with it. `/account` then shows what that tenant may do and the
+link into Stripe's portal; the portal needs to be enabled once, in the Stripe
+dashboard under Settings → Billing → Customer portal.
 
 ```bash
 pnpm test        # unit tests run anywhere; integration tests need DATABASE_URL
@@ -136,13 +150,16 @@ on every push.
 ## What is deliberately not here
 
 - **Proration and plan changes.** Mid-cycle upgrades need Stripe's proration
-  behaviour mirrored locally, or two sources of truth disagree about money.
+  behaviour mirrored locally, or two sources of truth disagree about money. The
+  portal covers cancelling and card updates; changing plan is not the same
+  problem.
 - **A dunning schedule.** `PAST_DUE` is entered and left correctly, but nothing
   emails the customer or decides when retries run out.
 - **Tax, invoices, receipts.** Stripe Tax and hosted invoices cover this better
   than an application ever will.
 - **Invites and roles.** A membership is provisioned for the address that signs
   in; there is nothing that adds a second person to a tenant, and every member
-  can do everything.
+  can do everything. A user who belongs to several tenants can say which one on
+  the API with `x-tenant-id`, but the account page has no picker.
 - **A real model call.** `/api/assistant` returns a stub. The entitlement and
   quota gates in front of it are the part that has to be right first.
