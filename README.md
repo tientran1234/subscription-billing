@@ -68,11 +68,25 @@ The account page hands the customer a link into Stripe's billing portal, where
 they cancel, resume or update a card; the change comes back as a webhook like
 any other. An in-app cancel would be a second writer of `status`, racing the
 webhook reporting the very same change — and nothing sensible happens when the
-two disagree. So `IBillingProvider` has no method that edits a subscription,
+two disagree. So `IBillingProvider` has no method that cancels or resumes one,
 and the conformance suite pins each adapter's method surface so one cannot be
 added by accident. The portal link is minted per click, because Stripe's is
 single-use and expires in minutes. The customer id it opens for is resolved
 from the caller's own tenant, never read off the request.
+
+**Changing plan moves a price, not a status.**
+Upgrading mid-cycle does go through the app, because it is not the thing
+cancelling is. `/api/plan-change` quotes the proration with
+`invoices.retrieveUpcoming` and charges nothing; confirming sends back the
+instant that quote was computed at, so Stripe bills the amount the customer was
+shown rather than what it would work out whenever they got round to clicking,
+and a quote too old for that is refused instead of silently repriced. Confirming
+writes nothing here: Stripe stores the new plan on the subscription and
+snapshots it onto the proration invoice, and `planKey` moves when that invoice is
+paid. A card that declines therefore leaves the tenant on the plan they are
+still paying for, and a renewal raised before the upgrade but delivered after it
+cannot put them back on the plan they left — it is older than the period already
+stored, so it moves the dates and nothing else.
 
 **People sign in; machines carry keys.**
 A person gets a magic link — Auth.js, sessions in Postgres, no password to
@@ -101,6 +115,7 @@ src/
     billing-event.ts   IBillingProvider + neutral DTOs (the contract)
     subscription.ts    status enum + legal transitions + event mapping
     entitlements.ts    plans, features, quotas; entitlements as a pure function
+    plan-change.ts     when a plan may move, and how long a quoted price holds
     membership.ts      which tenant a signed-in caller may act for
   providers/
     stripe.ts      the ONLY file importing `stripe`
@@ -116,8 +131,9 @@ src/
     api/keys             mint / revoke API keys (hash stored, raw shown once)
     api/assistant        a paid feature: api key → scope → entitlement → quota
     api/portal           a link into Stripe's billing portal, for the caller's tenant
+    api/plan-change      quote a proration, then change plan at the quoted price
     [locale]/            pricing and account pages, en + vi
-tests/               49 unit + 17 integration against real Postgres
+tests/               64 unit + 26 integration against real Postgres
 ```
 
 ## Run it
@@ -149,10 +165,8 @@ on every push.
 
 ## What is deliberately not here
 
-- **Proration and plan changes.** Mid-cycle upgrades need Stripe's proration
-  behaviour mirrored locally, or two sources of truth disagree about money. The
-  portal covers cancelling and card updates; changing plan is not the same
-  problem.
+- **A plan picker on the account page.** Plan changes are quoted and confirmed
+  over `/api/plan-change`; the two-step flow has no UI in front of it yet.
 - **A dunning schedule.** `PAST_DUE` is entered and left correctly, but nothing
   emails the customer or decides when retries run out.
 - **Tax, invoices, receipts.** Stripe Tax and hosted invoices cover this better
