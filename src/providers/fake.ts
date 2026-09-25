@@ -6,16 +6,31 @@
 import { createHmac } from "node:crypto";
 import {
   type BillingEvent,
+  type ChangePlanInput,
   type CreateCheckoutInput,
   type CreateCheckoutResult,
   type CreatePortalInput,
   type CreatePortalResult,
   type IBillingProvider,
+  type PlanChangePreview,
+  type PreviewPlanChangeInput,
   WebhookVerificationError,
 } from "@/domain/billing-event";
 
+/** What a preview quotes. Made up — the fake is here for the flow, not the money. */
+const FAKE_PRORATION_MINOR = 1_234;
+
 export class FakeProvider implements IBillingProvider {
   readonly name = "fake";
+
+  /**
+   * Every preview taken and every plan change made through this provider.
+   * Nothing in the app reads them; they are how a test sees which
+   * subscription was repriced, and that a refused change never reached the
+   * provider at all.
+   */
+  readonly previews: PreviewPlanChangeInput[] = [];
+  readonly planChanges: ChangePlanInput[] = [];
 
   constructor(private readonly secret = "fake-secret") {}
 
@@ -27,6 +42,20 @@ export class FakeProvider implements IBillingProvider {
   async createPortalSession(input: CreatePortalInput): Promise<CreatePortalResult> {
     const returnTo = encodeURIComponent(input.returnUrl);
     return { portalUrl: `https://fake.portal/${input.customerRef}?return_to=${returnTo}` };
+  }
+
+  async previewPlanChange(input: PreviewPlanChangeInput): Promise<PlanChangePreview> {
+    this.previews.push(input);
+    return {
+      amountDueMinor: FAKE_PRORATION_MINOR,
+      currency: "usd",
+      prorationDate: new Date(),
+      nextInvoiceAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    };
+  }
+
+  async changePlan(input: ChangePlanInput): Promise<void> {
+    this.planChanges.push(input);
   }
 
   /** Sign a payload the way the fake gateway would — test helper. */

@@ -10,11 +10,14 @@ import Stripe from "stripe";
 import {
   type BillingEvent,
   type BillingEventType,
+  type ChangePlanInput,
   type CreateCheckoutInput,
   type CreateCheckoutResult,
   type CreatePortalInput,
   type CreatePortalResult,
   type IBillingProvider,
+  type PlanChangePreview,
+  type PreviewPlanChangeInput,
   WebhookVerificationError,
 } from "@/domain/billing-event";
 
@@ -33,6 +36,8 @@ interface InvoiceLike {
   subscription?: string | { id: string } | null;
   customer?: string | { id: string } | null;
   lines?: { data?: Array<{ period?: { end?: number } }> };
+  /** Stripe's snapshot of the subscription's metadata when it finalized this. */
+  subscription_details?: { metadata?: Record<string, string> | null } | null;
 }
 interface SubscriptionLike {
   id: string;
@@ -52,6 +57,21 @@ const refOf = (value: unknown): string | undefined => {
 
 const secondsToDate = (seconds: unknown): Date | undefined =>
   typeof seconds === "number" ? new Date(seconds * 1000) : undefined;
+
+/**
+ * The item a plan change reprices. A subscription started by `createCheckout`
+ * has exactly one line, so there is nothing to choose between; a subscription
+ * with none is not ours to reprice and says so rather than guessing.
+ */
+async function repricedItem(
+  stripe: Stripe,
+  providerRef: string,
+): Promise<{ itemId: string; customerRef?: string }> {
+  const subscription = await stripe.subscriptions.retrieve(providerRef);
+  const itemId = subscription.items.data[0]?.id;
+  if (!itemId) throw new Error(`Stripe subscription ${providerRef} has no item to reprice`);
+  return { itemId, customerRef: refOf(subscription.customer) };
+}
 
 export class StripeProvider implements IBillingProvider {
   readonly name = "stripe";
@@ -88,6 +108,48 @@ export class StripeProvider implements IBillingProvider {
       return_url: input.returnUrl,
     });
     return { portalUrl: session.url };
+  }
+
+  async previewPlanChange(input: PreviewPlanChangeInput): Promise<PlanChangePreview> {
+    const { itemId, customerRef } = await repricedItem(this.stripe, input.providerRef);
+
+    // Fixing the instant ourselves, rather than letting Stripe pick one per
+    // call, is what makes the quote binding: changePlan sends this very number
+    // back and Stripe then bills the amount previewed here.
+    const prorationDate = Math.floor(Date.now() / 1000);
+
+    const invoice = await this.stripe.invoices.retrieveUpcoming({
+      customer: customerRef,
+      subscription: input.providerRef,
+      subscription_details: {
+        items: [{ id: itemId, price: input.priceRef, quantity: 1 }],
+        proration_behavior: "always_invoice",
+        proration_date: prorationDate,
+      },
+    });
+
+    return {
+      amountDueMinor: invoice.amount_due,
+      currency: invoice.currency,
+      prorationDate: new Date(prorationDate * 1000),
+      nextInvoiceAt: secondsToDate(invoice.next_payment_attempt ?? invoice.period_end),
+    };
+  }
+
+  async changePlan(input: ChangePlanInput): Promise<void> {
+    const { itemId } = await repricedItem(this.stripe, input.providerRef);
+
+    await this.stripe.subscriptions.update(input.providerRef, {
+      items: [{ id: itemId, price: input.priceRef, quantity: 1 }],
+      // Invoice the proration now instead of parking it on the next renewal:
+      // the paid invoice is what tells us the plan moved, and a tenant should
+      // not wait a month for the plan they just bought.
+      proration_behavior: "always_invoice",
+      proration_date: Math.floor(input.prorationDate.getTime() / 1000),
+      // Metadata is merged, and the invoice snapshots it — which is how the
+      // new plan reaches applyEvent without anything writing it locally.
+      metadata: { planKey: input.planKey },
+    });
   }
 
   async verifyWebhook(rawBody: string, signature: string): Promise<BillingEvent> {
@@ -128,6 +190,10 @@ export function normalize(event: Stripe.Event): BillingEvent {
         type: "subscription_activated",
         providerRef: refOf(i.subscription),
         customerRef: refOf(i.customer),
+        // The plan in force when this invoice was finalized. On a plan change
+        // that is the new one, and the paid invoice is the evidence the money
+        // for it was taken.
+        planKey: i.subscription_details?.metadata?.planKey,
         currentPeriodEnd: secondsToDate(i.lines?.data?.[0]?.period?.end),
       };
     }

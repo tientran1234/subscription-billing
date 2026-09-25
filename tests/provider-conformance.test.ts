@@ -22,11 +22,21 @@ function contract(name: string, make: () => IBillingProvider) {
     // is allowed to offer a cancel or a card update is by handing the customer
     // a link to the provider's own portal. An adapter growing a
     // `cancelSubscription` would be a second writer, and fails here.
-    it("exposes no way to change a subscription itself", () => {
+    //
+    // `changePlan` is on the list because it is not one: it moves a price, and
+    // the plan it moves to reaches us on the invoice that pays for it, like
+    // every other fact.
+    it("exposes no way to change a subscription's status", () => {
       const methods = Object.getOwnPropertyNames(Object.getPrototypeOf(make()))
         .filter((m) => m !== "constructor" && !EXTRAS[name]?.includes(m))
         .sort();
-      expect(methods).toEqual(["createCheckout", "createPortalSession", "verifyWebhook"]);
+      expect(methods).toEqual([
+        "changePlan",
+        "createCheckout",
+        "createPortalSession",
+        "previewPlanChange",
+        "verifyWebhook",
+      ]);
     });
   });
 }
@@ -56,6 +66,30 @@ describe("fake provider", () => {
     });
     expect(portalUrl).toMatch(/^https?:\/\//);
     expect(portalUrl).toContain("cus_local");
+  });
+
+  it("bills the plan change as of the instant it quoted", async () => {
+    const provider = new FakeProvider();
+    const preview = await provider.previewPlanChange({
+      providerRef: "sub_1",
+      priceRef: "price_scale",
+    });
+    const { prorationDate } = preview;
+
+    expect(preview.amountDueMinor).toBeTypeOf("number");
+    // The instant the quote was computed at: confirming sends it back, which is
+    // what stops the customer being billed for a price they were never shown.
+    expect(prorationDate.getTime()).toBeLessThanOrEqual(Date.now());
+
+    await provider.changePlan({
+      providerRef: "sub_1",
+      priceRef: "price_scale",
+      planKey: "scale",
+      prorationDate,
+    });
+
+    expect(provider.planChanges).toHaveLength(1);
+    expect(provider.planChanges[0].prorationDate).toEqual(prorationDate);
   });
 
   it("returns a checkout url and a reference", async () => {
@@ -110,6 +144,20 @@ describe("stripe normalisation", () => {
     );
     expect(event.type).toBe("subscription_activated");
     expect(event.currentPeriodEnd?.getTime()).toBe(end * 1000);
+  });
+
+  // A plan change is only ever reported to us this way: Stripe snapshots the
+  // subscription's metadata onto the invoice it finalizes, so the paid invoice
+  // names the plan the money was taken for. Drop this and an upgrade the
+  // customer paid for never reaches their entitlements.
+  it("carries the plan a paid invoice was raised for", () => {
+    const event = normalize(
+      stripeEvent("invoice.paid", {
+        subscription: "sub_9",
+        subscription_details: { metadata: { planKey: "scale" } },
+      }),
+    );
+    expect(event.planKey).toBe("scale");
   });
 
   it("maps a failed invoice to payment_failed", () => {

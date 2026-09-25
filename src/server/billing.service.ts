@@ -6,7 +6,17 @@
  */
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
-import type { BillingEvent, IBillingProvider } from "@/domain/billing-event";
+import type {
+  BillingEvent,
+  IBillingProvider,
+  PlanChangePreview,
+} from "@/domain/billing-event";
+import {
+  checkPlanChange,
+  isQuoteUsable,
+  planKeyForPaidInvoice,
+  type PlanChangeRefusal,
+} from "@/domain/plan-change";
 import { portalCustomerFor } from "@/domain/portal";
 import { predecessorsOf, statusForEvent } from "@/domain/subscription";
 import { entitlementsFor, type Entitlements } from "@/domain/entitlements";
@@ -22,6 +32,8 @@ export type ApplyOutcome =
   | "transitioned"
   /** Already ACTIVE and this was a renewal — period extended, status untouched. */
   | "renewed"
+  /** Already ACTIVE and the paid invoice named another plan — plan moved, status untouched. */
+  | "repriced"
   /** The transition is not legal from the current status: out-of-order or lost race. */
   | "no_transition";
 
@@ -96,6 +108,90 @@ export async function startPortalSession(
   return { ok: true, portalUrl };
 }
 
+export type PlanChangeFailure =
+  | PlanChangeRefusal
+  /** Nothing the provider knows about yet — no subscription, or no webhook for it. */
+  | "no_subscription"
+  /** The quote is too old to bill against; take a fresh preview. */
+  | "stale_quote";
+
+export interface PlanChangeInput {
+  tenantId: string;
+  planKey: string;
+  /** Provider-side price id for that plan. */
+  priceRef: string;
+}
+
+export type PreviewResult =
+  | { ok: true; preview: PlanChangePreview }
+  | { ok: false; reason: PlanChangeFailure };
+
+export type ConfirmResult = { ok: true } | { ok: false; reason: PlanChangeFailure };
+
+/**
+ * The subscription a plan change would act on: this tenant's newest, and only
+ * if the provider is already billing it. Resolved from the tenant, never from
+ * the request, for the same reason the portal is.
+ */
+async function repriceable(
+  tenantId: string,
+  target: string,
+): Promise<{ ok: true; providerRef: string } | { ok: false; reason: PlanChangeFailure }> {
+  const subscription = await db.subscription.findFirst({
+    where: { tenantId },
+    orderBy: { createdAt: "desc" },
+  });
+  if (!subscription?.providerRef) return { ok: false, reason: "no_subscription" };
+
+  const check = checkPlanChange(subscription, target);
+  if (!check.ok) return { ok: false, reason: check.reason };
+
+  return { ok: true, providerRef: subscription.providerRef };
+}
+
+/** What the change would cost. Charges nothing and changes nothing. */
+export async function previewPlanChange(
+  provider: IBillingProvider,
+  input: PlanChangeInput,
+): Promise<PreviewResult> {
+  const found = await repriceable(input.tenantId, input.planKey);
+  if (!found.ok) return found;
+
+  const preview = await provider.previewPlanChange({
+    providerRef: found.providerRef,
+    priceRef: input.priceRef,
+  });
+  return { ok: true, preview };
+}
+
+/**
+ * Ask the provider to move the plan, billing the proration the customer was
+ * shown — `prorationDate` comes straight back from their preview, and a quote
+ * old enough that the provider would now compute a different amount is refused
+ * rather than silently repriced.
+ *
+ * Nothing local changes here. `planKey` moves when the invoice for it is paid
+ * and that webhook reaches applyEvent, so a change the customer's card declines
+ * leaves them on the plan they are still paying for.
+ */
+export async function confirmPlanChange(
+  provider: IBillingProvider,
+  input: PlanChangeInput & { prorationDate: Date },
+): Promise<ConfirmResult> {
+  if (!isQuoteUsable(input.prorationDate)) return { ok: false, reason: "stale_quote" };
+
+  const found = await repriceable(input.tenantId, input.planKey);
+  if (!found.ok) return found;
+
+  await provider.changePlan({
+    providerRef: found.providerRef,
+    priceRef: input.priceRef,
+    planKey: input.planKey,
+    prorationDate: input.prorationDate,
+  });
+  return { ok: true };
+}
+
 export async function applyEvent(
   providerName: string,
   event: BillingEvent,
@@ -129,7 +225,11 @@ export async function applyEvent(
   const subscription = await db.subscription.findFirst({ where: { OR: refs } });
   if (!subscription) return "not_found";
 
-  // 2. Transition conditionally. `status IN (legal predecessors)` is checked by
+  // 2. A paid invoice may also move the plan — that is how a mid-cycle change
+  //    reaches us, since nothing writes planKey when the change is requested.
+  const nextPlanKey = target === "ACTIVE" ? planKeyForPaidInvoice(subscription, event) : null;
+
+  // 3. Transition conditionally. `status IN (legal predecessors)` is checked by
   //    Postgres, not by Node, so two deliveries racing each other produce one
   //    winner and one no-op rather than two writes.
   const { count } = await db.subscription.updateMany({
@@ -139,22 +239,30 @@ export async function applyEvent(
       ...(event.providerRef ? { providerRef: event.providerRef } : {}),
       ...(event.customerRef ? { customerRef: event.customerRef } : {}),
       ...(event.currentPeriodEnd ? { currentPeriodEnd: event.currentPeriodEnd } : {}),
+      ...(nextPlanKey ? { planKey: nextPlanKey } : {}),
     },
   });
   if (count === 1) return "transitioned";
 
-  // 3. A renewal on an already-ACTIVE subscription is not a status change, but
-  //    it does move the period end. Without this, ACTIVE→ACTIVE would be
-  //    dropped and the subscription would look expired at the old date.
-  if (target === "ACTIVE" && subscription.status === "ACTIVE" && event.currentPeriodEnd) {
+  // 4. A renewal or a plan change on an already-ACTIVE subscription is not a
+  //    status change, but it does move the period end and the plan. Without
+  //    this, ACTIVE→ACTIVE would be dropped: the subscription would look
+  //    expired at the old date, and an upgrade the customer has paid for would
+  //    never take effect.
+  if (
+    target === "ACTIVE" &&
+    subscription.status === "ACTIVE" &&
+    (event.currentPeriodEnd || nextPlanKey)
+  ) {
     await db.subscription.update({
       where: { id: subscription.id },
       data: {
-        currentPeriodEnd: event.currentPeriodEnd,
+        ...(event.currentPeriodEnd ? { currentPeriodEnd: event.currentPeriodEnd } : {}),
         ...(event.customerRef ? { customerRef: event.customerRef } : {}),
+        ...(nextPlanKey ? { planKey: nextPlanKey } : {}),
       },
     });
-    return "renewed";
+    return nextPlanKey ? "repriced" : "renewed";
   }
 
   return "no_transition";

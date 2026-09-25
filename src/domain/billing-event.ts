@@ -58,6 +58,33 @@ export interface CreatePortalResult {
   portalUrl: string;
 }
 
+export interface PreviewPlanChangeInput {
+  /** Provider's subscription id — the one being repriced. */
+  providerRef: string;
+  /** Provider-side price id of the plan being moved to. */
+  priceRef: string;
+}
+
+export interface PlanChangePreview {
+  /** Payable now, in the currency's minor unit, net of any unused time. */
+  amountDueMinor: number;
+  currency: string;
+  /**
+   * The instant the proration was computed at. Handed back on confirm so the
+   * provider bills the amount that was quoted instead of recomputing it for
+   * whenever the customer got round to clicking.
+   */
+  prorationDate: Date;
+  /** When the next full invoice falls due, when the provider says. */
+  nextInvoiceAt?: Date;
+}
+
+export interface ChangePlanInput extends PreviewPlanChangeInput {
+  /** Our plan key. The provider stores it, so the paid invoice carries it back. */
+  planKey: string;
+  prorationDate: Date;
+}
+
 export interface IBillingProvider {
   readonly name: string;
   createCheckout(input: CreateCheckoutInput): Promise<CreateCheckoutResult>;
@@ -65,11 +92,27 @@ export interface IBillingProvider {
    * A short-lived, authenticated link into the provider's own billing portal,
    * where the customer cancels, resumes or updates their card.
    *
-   * Deliberately the only subscription-changing capability in this interface:
-   * every such change is made on the provider's side and reaches us as a
-   * webhook, so the state machine stays the one path a status can move along.
+   * Cancelling and resuming are deliberately not methods here: a status is
+   * changed on the provider's side and reaches us as a webhook, so the state
+   * machine stays the one path it can move along.
    */
   createPortalSession(input: CreatePortalInput): Promise<CreatePortalResult>;
+  /**
+   * What moving to `priceRef` would cost right now: the proration computed,
+   * quoted, and not charged. Nothing here changes a subscription, so a preview
+   * the customer abandons leaves nothing behind.
+   */
+  previewPlanChange(input: PreviewPlanChangeInput): Promise<PlanChangePreview>;
+  /**
+   * Move the subscription to `priceRef`, invoicing the proration as of the
+   * instant the preview quoted.
+   *
+   * The one method here that changes a subscription — and deliberately not one
+   * that changes its status: it moves a price. The new plan comes back on the
+   * webhook for the invoice that pays for it, so applyEvent is still the only
+   * writer of what a tenant is entitled to.
+   */
+  changePlan(input: ChangePlanInput): Promise<void>;
   /**
    * Verify the signature over the RAW request bytes, then normalize.
    * Throws {@link WebhookVerificationError} when the signature does not match.

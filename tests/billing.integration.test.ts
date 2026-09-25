@@ -7,10 +7,17 @@
  */
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
-import { applyEvent, entitlementsForTenant, startPortalSession } from "@/server/billing.service";
+import {
+  applyEvent,
+  confirmPlanChange,
+  entitlementsForTenant,
+  previewPlanChange,
+  startPortalSession,
+} from "@/server/billing.service";
 import { meter } from "@/server/usage";
 import type { BillingEvent } from "@/domain/billing-event";
 import { FakeProvider } from "@/providers/fake";
+import { QUOTE_TTL_SECONDS } from "@/domain/plan-change";
 
 const hasDatabase = Boolean(process.env.DATABASE_URL);
 
@@ -97,6 +104,50 @@ describe.skipIf(!hasDatabase)("billing service", () => {
 
     await applyEvent("stripe", event({ providerEventId: "evt_2", type: "subscription_canceled", providerRef: "sub_1" }));
     expect((await entitlementsForTenant(tenantId)).planKey).toBe("free");
+  });
+
+  it("moves the plan when an invoice for another one is paid", async () => {
+    await applyEvent("stripe", event({ providerEventId: "evt_1", checkoutRef: "cs_test_1", providerRef: "sub_1" }));
+    expect((await entitlementsForTenant(tenantId)).planKey).toBe("pro");
+
+    const outcome = await applyEvent(
+      "stripe",
+      event({ providerEventId: "evt_2", providerRef: "sub_1", planKey: "scale" }),
+    );
+
+    // The status did not move — only the plan did, and the tenant has the
+    // features they just paid the proration for.
+    expect(outcome).toBe("repriced");
+    const row = await db.subscription.findUniqueOrThrow({ where: { id: subscriptionId } });
+    expect(row.status).toBe("ACTIVE");
+    expect((await entitlementsForTenant(tenantId)).planKey).toBe("scale");
+  });
+
+  it("does not let a late invoice put the tenant back on the plan they left", async () => {
+    await applyEvent(
+      "stripe",
+      event({
+        providerEventId: "evt_1",
+        checkoutRef: "cs_test_1",
+        providerRef: "sub_1",
+        currentPeriodEnd: new Date("2026-10-01T00:00:00.000Z"),
+      }),
+    );
+    await applyEvent("stripe", event({ providerEventId: "evt_2", providerRef: "sub_1", planKey: "scale" }));
+
+    // A renewal raised before the upgrade, delivered after it.
+    const outcome = await applyEvent(
+      "stripe",
+      event({
+        providerEventId: "evt_3",
+        providerRef: "sub_1",
+        planKey: "pro",
+        currentPeriodEnd: new Date("2026-09-01T00:00:00.000Z"),
+      }),
+    );
+
+    expect(outcome).toBe("renewed");
+    expect((await entitlementsForTenant(tenantId)).planKey).toBe("scale");
   });
 
   it("counts every metered call and blocks the one past the limit", async () => {
@@ -205,5 +256,111 @@ describe.skipIf(!hasDatabase)("billing portal", () => {
     expect(result.ok && decodeURIComponent(result.portalUrl)).toContain(
       "https://app.test/account",
     );
+  });
+});
+
+describe.skipIf(!hasDatabase)("plan change", () => {
+  const price = { tenantId: "", planKey: "scale", priceRef: "price_scale" };
+  let provider: FakeProvider;
+  let tenantId: string;
+
+  const subscribe = (over: Record<string, unknown>) =>
+    db.subscription.create({
+      data: { tenantId, planKey: "pro", status: "ACTIVE", providerRef: "sub_mine", ...over },
+    });
+
+  beforeEach(async () => {
+    provider = new FakeProvider();
+    await db.tenant.deleteMany();
+    const tenant = await db.tenant.create({
+      data: { email: `plan${Date.now()}@example.test`, name: "Plan tenant" },
+    });
+    tenantId = tenant.id;
+  });
+
+  afterAll(async () => {
+    await db.$disconnect();
+  });
+
+  it("quotes the change against the caller's own subscription", async () => {
+    await subscribe({});
+    const result = await previewPlanChange(provider, { ...price, tenantId });
+
+    expect(result.ok && result.preview.amountDueMinor).toBeGreaterThan(0);
+    expect(provider.previews).toEqual([{ providerRef: "sub_mine", priceRef: "price_scale" }]);
+  });
+
+  it("has nothing to reprice before the provider has billed the tenant once", async () => {
+    await subscribe({ status: "PENDING", providerRef: null });
+    expect(await previewPlanChange(provider, { ...price, tenantId })).toEqual({
+      ok: false,
+      reason: "no_subscription",
+    });
+  });
+
+  it("changes the plan at the provider, for the price that was quoted", async () => {
+    await subscribe({});
+    const preview = await previewPlanChange(provider, { ...price, tenantId });
+    const prorationDate = preview.ok ? preview.preview.prorationDate : new Date(0);
+
+    expect(await confirmPlanChange(provider, { ...price, tenantId, prorationDate })).toEqual({
+      ok: true,
+    });
+    expect(provider.planChanges).toEqual([
+      { providerRef: "sub_mine", priceRef: "price_scale", planKey: "scale", prorationDate },
+    ]);
+  });
+
+  // Confirming leaves the subscription alone: the plan moves when the invoice
+  // for it is paid, so a card that declines cannot cost the tenant the plan
+  // they are still paying for.
+  it("does not move the plan until the invoice for it is paid", async () => {
+    const subscription = await subscribe({});
+    await confirmPlanChange(provider, { ...price, tenantId, prorationDate: new Date() });
+
+    const row = await db.subscription.findUniqueOrThrow({ where: { id: subscription.id } });
+    expect(row.planKey).toBe("pro");
+    expect((await entitlementsForTenant(tenantId)).planKey).toBe("pro");
+  });
+
+  it("refuses a quote too old to still be the price, and never asks the provider", async () => {
+    await subscribe({});
+    const stale = new Date(Date.now() - (QUOTE_TTL_SECONDS + 60) * 1000);
+
+    expect(await confirmPlanChange(provider, { ...price, tenantId, prorationDate: stale })).toEqual({
+      ok: false,
+      reason: "stale_quote",
+    });
+    expect(provider.planChanges).toEqual([]);
+  });
+
+  it("refuses a subscription that is not being billed, and never asks the provider", async () => {
+    await subscribe({ status: "PAST_DUE" });
+
+    expect(
+      await confirmPlanChange(provider, { ...price, tenantId, prorationDate: new Date() }),
+    ).toEqual({ ok: false, reason: "not_billable" });
+    expect(provider.planChanges).toEqual([]);
+  });
+
+  it("never reprices another tenant's subscription", async () => {
+    const other = await db.tenant.create({
+      data: { email: `victim${Date.now()}@example.test`, name: "Other tenant" },
+    });
+    // The other tenant's row is the newest in the table, so a lookup that
+    // forgot to filter by tenant would reprice theirs.
+    await subscribe({ createdAt: new Date("2026-01-01") });
+    await db.subscription.create({
+      data: {
+        tenantId: other.id,
+        planKey: "pro",
+        status: "ACTIVE",
+        providerRef: "sub_victim",
+        createdAt: new Date("2026-06-01"),
+      },
+    });
+
+    await confirmPlanChange(provider, { ...price, tenantId, prorationDate: new Date() });
+    expect(provider.planChanges.map((c) => c.providerRef)).toEqual(["sub_mine"]);
   });
 });
