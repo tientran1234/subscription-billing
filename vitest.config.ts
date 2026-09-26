@@ -5,6 +5,11 @@ export default defineConfig({
   resolve: {
     alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
   },
+  // The email templates are JSX. Next compiles them with the automatic
+  // runtime; tsconfig says `preserve` because Next owns that step, so esbuild
+  // has to be told the same thing or it emits classic `React.createElement`
+  // calls into files that never import React.
+  esbuild: { jsx: "automatic" },
   test: {
     environment: "node",
     include: ["tests/**/*.test.ts"],
