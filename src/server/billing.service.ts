@@ -192,6 +192,23 @@ export async function confirmPlanChange(
   return { ok: true };
 }
 
+/**
+ * The subscription an event is about, found by whichever reference it carries.
+ *
+ * Shared with the dunning notices, which need the same row to know who to
+ * write to: two lookups written twice would be two chances for one of them to
+ * pick a different subscription than the one whose status just moved.
+ */
+export async function subscriptionForEvent(event: BillingEvent) {
+  const refs = [
+    event.providerRef ? { providerRef: event.providerRef } : null,
+    event.checkoutRef ? { checkoutRef: event.checkoutRef } : null,
+  ].filter((r): r is { providerRef: string } | { checkoutRef: string } => r !== null);
+  if (refs.length === 0) return null;
+
+  return db.subscription.findFirst({ where: { OR: refs } });
+}
+
 export async function applyEvent(
   providerName: string,
   event: BillingEvent,
@@ -216,13 +233,7 @@ export async function applyEvent(
   const target = statusForEvent(event.type);
   if (!target) return "ignored";
 
-  const refs = [
-    event.providerRef ? { providerRef: event.providerRef } : null,
-    event.checkoutRef ? { checkoutRef: event.checkoutRef } : null,
-  ].filter((r): r is { providerRef: string } | { checkoutRef: string } => r !== null);
-  if (refs.length === 0) return "not_found";
-
-  const subscription = await db.subscription.findFirst({ where: { OR: refs } });
+  const subscription = await subscriptionForEvent(event);
   if (!subscription) return "not_found";
 
   // 2. A paid invoice may also move the plan — that is how a mid-cycle change

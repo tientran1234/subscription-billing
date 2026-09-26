@@ -15,18 +15,27 @@ const schema = z.object({
 });
 
 /**
- * Auth settings are parsed separately so a missing SMTP host breaks sign-in
- * only, and not checkout or the webhook route that never look at it.
+ * Where mail goes out. Magic links and dunning notices share one SMTP url
+ * because they are one application writing to one customer; splitting them
+ * would be two settings to keep in step for no gain.
  */
-const authSchema = z.object({
-  AUTH_SECRET: z.string().min(1),
+const mailSchema = z.object({
   /** SMTP connection string, e.g. smtp://user:pass@host:587 */
   EMAIL_SERVER: z.string().min(1),
   EMAIL_FROM: z.string().email(),
 });
 
+/**
+ * Auth settings are parsed separately so a missing SMTP host breaks sign-in
+ * only, and not checkout or the webhook route that never look at it.
+ */
+const authSchema = mailSchema.extend({
+  AUTH_SECRET: z.string().min(1),
+});
+
 let cached: z.infer<typeof schema> | null = null;
 let cachedAuth: z.infer<typeof authSchema> | null = null;
+let cachedMail: z.infer<typeof mailSchema> | null = null;
 
 export function env() {
   if (!cached) cached = schema.parse(process.env);
@@ -36,6 +45,11 @@ export function env() {
 export function authEnv() {
   if (!cachedAuth) cachedAuth = authSchema.parse(process.env);
   return cachedAuth;
+}
+
+export function mailEnv() {
+  if (!cachedMail) cachedMail = mailSchema.parse(process.env);
+  return cachedMail;
 }
 
 /** Provider-side price id for a plan. Free has no price — it never checks out. */

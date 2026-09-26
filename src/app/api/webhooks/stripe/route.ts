@@ -1,6 +1,7 @@
 import { WebhookVerificationError } from "@/domain/billing-event";
 import { StripeProvider } from "@/providers/stripe";
 import { applyEvent } from "@/server/billing.service";
+import { notifyDunning } from "@/server/dunning";
 import { env } from "@/lib/env";
 
 // The Stripe SDK verifies signatures with node:crypto — not available on edge.
@@ -28,7 +29,12 @@ export async function POST(request: Request) {
 
   const outcome = await applyEvent(provider.name, event);
 
+  // After the transition, never instead of it: the customer is told about a
+  // status their subscription actually reached, and a mail server that is
+  // down cannot undo or redeliver the status change itself.
+  const notified = await notifyDunning({ event, outcome, appUrl: e.APP_URL });
+
   // Always 200 once the signature is valid. A non-2xx makes Stripe retry, and
   // every outcome here is already final — retrying would change nothing.
-  return Response.json({ received: true, outcome });
+  return Response.json({ received: true, outcome, notified });
 }
