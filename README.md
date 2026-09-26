@@ -88,6 +88,23 @@ still paying for, and a renewal raised before the upgrade but delivered after it
 cannot put them back on the plan they left — it is older than the period already
 stored, so it moves the dates and nothing else.
 
+**A dunning notice is claimed before it is sent.**
+A failed renewal mails the customer; a cancellation says goodbye. Both claim
+the provider's event id in `DunningNotice` before anything is rendered, so a
+second attempt loses on the primary key rather than on a check of whether a
+mail already went out — the same shape as `applyEvent`, and it holds for a
+manual replay and not just for the one caller that runs first today. Sending
+happens after `applyEvent` and never inside it: the route answers 200 once the
+signature verifies, and a mail server that is down must not make Stripe
+redeliver a status change that already landed. A refused send is therefore an
+outcome rather than an exception, and it deletes its own claim, because a row
+there means a mail went out and one that did not would block the retry as well
+as lie. Only a transition that really happened is worth writing about, so the
+notice reads the outcome: a replay, a lost race, and a renewal on an
+already-active subscription all mail nobody. The past-due mail links to the
+account page rather than to a portal link — the provider's are single-use and
+expire in minutes, so one minted at send time would be dead on arrival.
+
 **People sign in; machines carry keys.**
 A person gets a magic link — Auth.js, sessions in Postgres, no password to
 leak. `withSession` resolves the tenant out of the session's membership rows,
@@ -117,15 +134,19 @@ src/
     entitlements.ts    plans, features, quotas; entitlements as a pure function
     plan-change.ts     when a plan may move, and how long a quoted price holds
     membership.ts      which tenant a signed-in caller may act for
+    dunning.ts         which status a customer is worth writing to about
   providers/
     stripe.ts      the ONLY file importing `stripe`
     fake.ts        in-memory provider — full flow with no Stripe account
+  emails/          react-email templates; HTML and plain text off one tree
   server/
     billing.service.ts  the only place a subscription status changes
     usage.ts            metered quota
+    dunning.ts          claim the event id, render, send — at most once
+    mailer.ts           the SMTP seam, so tests can read what was composed
     with-session.ts     session → tenant, for human callers
   app/
-    api/webhooks/stripe  verify → claim → apply
+    api/webhooks/stripe  verify → claim → apply → notify
     api/auth             Auth.js magic-link sign-in
     api/checkout         start a subscription (tenant from the session)
     api/keys             mint / revoke API keys (hash stored, raw shown once)
@@ -133,7 +154,7 @@ src/
     api/portal           a link into Stripe's billing portal, for the caller's tenant
     api/plan-change      quote a proration, then change plan at the quoted price
     [locale]/            pricing and account pages, en + vi
-tests/               64 unit + 26 integration against real Postgres
+tests/               71 unit + 36 integration against real Postgres
 ```
 
 ## Run it
@@ -167,8 +188,11 @@ on every push.
 
 - **A plan picker on the account page.** Plan changes are quoted and confirmed
   over `/api/plan-change`; the two-step flow has no UI in front of it yet.
-- **A dunning schedule.** `PAST_DUE` is entered and left correctly, but nothing
-  emails the customer or decides when retries run out.
+- **A dunning schedule.** Entering `PAST_DUE` and leaving it now mails the
+  customer, but nothing here decides when the retries run out: Stripe's own
+  retry settings do, and the cancellation they end in arrives as a webhook like
+  any other. The mails are English only — nothing records a tenant's language,
+  so their links land on the default locale.
 - **Tax, invoices, receipts.** Stripe Tax and hosted invoices cover this better
   than an application ever will.
 - **Invites and roles.** A membership is provisioned for the address that signs
