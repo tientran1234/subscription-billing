@@ -10,6 +10,7 @@ import {
   parsePageSize,
   parsePeriod,
   parseSubscriptionFilter,
+  shiftPeriod,
 } from "@/domain/transactions";
 
 const row = (id: string, iso: string) => ({ id, createdAt: new Date(iso) });
@@ -151,5 +152,13 @@ describe("filters", () => {
     for (const bad of [null, "2026", "2026-13", "2026-00", "last month"]) {
       expect(parsePeriod(bad, "2026-09")).toBe("2026-09");
     }
+  });
+
+  it("steps a month at a time, over the turn of the year", () => {
+    expect(shiftPeriod("2026-09", 0)).toBe("2026-09");
+    expect(shiftPeriod("2026-01", -1)).toBe("2025-12");
+    expect(shiftPeriod("2026-12", 1)).toBe("2027-01");
+    // Whatever it produces has to be a period the parser will take back.
+    expect(parsePeriod(shiftPeriod("2026-12", 1), "2026-09")).toBe("2027-01");
   });
 });

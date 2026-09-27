@@ -66,6 +66,9 @@ export default async function AccountPage({
         failed={t("portalFailed")}
       />
       <p className="sub">{t("portalNote")}</p>
+      <p>
+        <Link href={`/${locale}/admin`}>{t("transactions")}</Link>
+      </p>
       {back}
     </main>
   );

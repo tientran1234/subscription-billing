@@ -5,6 +5,7 @@ import {
   generateApiKey,
   hashApiKey,
   hasScope,
+  usageFeatureFor,
   type KeyEnv,
   type Scope,
 } from "@/domain/api-key";
@@ -77,7 +78,7 @@ export function requireScope(key: ApiKey, scope: Scope): void {
 /** Count this request against the key's monthly quota; 429 once over. */
 export async function meterKey(key: ApiKey): Promise<MeterResult> {
   const limit = key.quotaLimit ?? Number.POSITIVE_INFINITY;
-  const result = await meter(key.tenantId, `api:${key.id}`, limit);
+  const result = await meter(key.tenantId, usageFeatureFor(key.id), limit);
   if (!result.allowed) throw new ApiKeyError("monthly quota exceeded", 429);
   return result;
 }

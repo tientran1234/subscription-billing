@@ -36,6 +36,14 @@ export function isScope(value: unknown): value is Scope {
 }
 
 /**
+ * The usage counter a key's calls are metered under. Read and written through
+ * this one function, so a listing cannot report a bucket that nothing fills.
+ */
+export function usageFeatureFor(keyId: string): string {
+  return `api:${keyId}`;
+}
+
+/**
  * Does `granted` cover `needed`? Exact match, `namespace:*`, or `*`.
  * Wildcards are granted by an admin, never requested by a caller.
  */

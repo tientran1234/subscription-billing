@@ -146,3 +146,13 @@ export function parseKeyState(raw: string | null | undefined): KeyState | undefi
 export function parsePeriod(raw: string | null | undefined, fallback: string): string {
   return /^\d{4}-(0[1-9]|1[0-2])$/.test(raw ?? "") ? (raw as string) : fallback;
 }
+
+/**
+ * The UTC month `months` away from `period`, so a reader can step off the
+ * current one. Here rather than in the page because rolling December over is
+ * the kind of arithmetic that is wrong until something tests it.
+ */
+export function shiftPeriod(period: string, months: number): string {
+  const [year, month] = period.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1 + months, 1)).toISOString().slice(0, 7);
+}
