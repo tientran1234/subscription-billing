@@ -105,6 +105,20 @@ already-active subscription all mail nobody. The past-due mail links to the
 account page rather than to a portal link — the provider's are single-use and
 expire in minutes, so one minted at send time would be dead on arrival.
 
+**Reading a ledger uses a cursor, not an offset.**
+The transactions page lists subscription attempts and per-key usage newest
+first. `LIMIT n OFFSET n` counts from the start of the result on every request,
+so a checkout that lands while someone is on page one slides the boundary down
+and page two repeats a row while hiding another — on a list of what a customer
+was charged, that is the wrong kind of wrong. A cursor names the last row
+served instead, and it is a `(createdAt, id)` pair because two rows written in
+the same millisecond would otherwise both sit exactly on the boundary. One row
+past the page is fetched to decide whether there is a next one, so no COUNT
+grows slower as the table does. The keys are paged before their usage counters
+are read, never the other way round: a counter row only exists once a call has
+been metered, so joining from the counters would drop every key that has not
+been used — which is the row anyone auditing spend is looking for.
+
 **People sign in; machines carry keys.**
 A person gets a magic link — Auth.js, sessions in Postgres, no password to
 leak. `withSession` resolves the tenant out of the session's membership rows,
@@ -135,6 +149,7 @@ src/
     plan-change.ts     when a plan may move, and how long a quoted price holds
     membership.ts      which tenant a signed-in caller may act for
     dunning.ts         which status a customer is worth writing to about
+    transactions.ts    cursor ordering and the filters the ledger may be read by
   providers/
     stripe.ts      the ONLY file importing `stripe`
     fake.ts        in-memory provider — full flow with no Stripe account
@@ -145,6 +160,7 @@ src/
     dunning.ts          claim the event id, render, send — at most once
     mailer.ts           the SMTP seam, so tests can read what was composed
     with-session.ts     session → tenant, for human callers
+    transactions.ts     the two paginated reads behind the transactions page
   app/
     api/webhooks/stripe  verify → claim → apply → notify
     api/auth             Auth.js magic-link sign-in
@@ -153,8 +169,8 @@ src/
     api/assistant        a paid feature: api key → scope → entitlement → quota
     api/portal           a link into Stripe's billing portal, for the caller's tenant
     api/plan-change      quote a proration, then change plan at the quoted price
-    [locale]/            pricing and account pages, en + vi
-tests/               71 unit + 36 integration against real Postgres
+    [locale]/            pricing, account and transactions pages, en + vi
+tests/               87 unit + 48 integration against real Postgres
 ```
 
 ## Run it
@@ -174,7 +190,8 @@ Sign in at `/api/auth/signin` — Auth.js's own page is enough to click a magic
 link. First sign-in provisions a tenant for the address, or joins the tenant
 already seeded with it. `/account` then shows what that tenant may do and the
 link into Stripe's portal; the portal needs to be enabled once, in the Stripe
-dashboard under Settings → Billing → Customer portal.
+dashboard under Settings → Billing → Customer portal. `/admin` lists that
+tenant's subscription attempts and what each API key spent, a page at a time.
 
 ```bash
 pnpm test        # unit tests run anywhere; integration tests need DATABASE_URL
@@ -197,7 +214,9 @@ on every push.
   than an application ever will.
 - **Invites and roles.** A membership is provisioned for the address that signs
   in; there is nothing that adds a second person to a tenant, and every member
-  can do everything. A user who belongs to several tenants can say which one on
-  the API with `x-tenant-id`, but the account page has no picker.
+  can do everything. That is also what "admin" means on the transactions page —
+  the workspace the caller belongs to, not a view across tenants. A user who
+  belongs to several tenants can say which one on the API with `x-tenant-id`,
+  but the account page has no picker.
 - **A real model call.** `/api/assistant` returns a stub. The entitlement and
   quota gates in front of it are the part that has to be right first.
