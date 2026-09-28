@@ -138,6 +138,21 @@ on every response so clients can back off before being cut off. Unknown and
 revoked keys return the same 401 — a distinct message would confirm the key
 once existed.
 
+**The end-to-end suite drives the app, not Stripe.**
+The three claims a customer would notice — a checkout becomes access, a
+replayed webhook changes nothing, access ends with the subscription — are
+pinned against `applyEvent` by the unit suite and against a browser by
+`tests/e2e`. Those runs need a gateway and CI has no Stripe account, so
+`BILLING_PROVIDER=fake` puts the in-memory adapter behind the real routes,
+refused once `NODE_ENV` is production because an adapter that signs its own
+webhooks would accept anybody's. That leaves the one thing a fake cannot stand
+in for: a renewal falls due a month after checkout, which is what Stripe's test
+clock exists to skip. So the suite is the clock — it holds the instant,
+advances it, and posts the deliveries the gateway would have made by then, as
+raw signed bytes at the endpoint Stripe posts to. Signing in seeds the session
+row the Auth.js adapter would have written rather than running an SMTP catcher
+in CI; the magic link has its own tests, and billing is what this one is for.
+
 ## Layout
 
 ```
@@ -151,6 +166,7 @@ src/
     dunning.ts         which status a customer is worth writing to about
     transactions.ts    cursor ordering and the filters the ledger may be read by
   providers/
+    index.ts       which adapter the routes get — Stripe unless asked otherwise
     stripe.ts      the ONLY file importing `stripe`
     fake.ts        in-memory provider — full flow with no Stripe account
   emails/          react-email templates; HTML and plain text off one tree
@@ -170,7 +186,8 @@ src/
     api/portal           a link into Stripe's billing portal, for the caller's tenant
     api/plan-change      quote a proration, then change plan at the quoted price
     [locale]/            pricing, account and transactions pages, en + vi
-tests/               87 unit + 48 integration against real Postgres
+tests/               92 unit + 48 integration against real Postgres
+  e2e/               Playwright: checkout, webhook replay, the cancel drop
 ```
 
 ## Run it
@@ -195,11 +212,12 @@ tenant's subscription attempts and what each API key spent, a page at a time.
 
 ```bash
 pnpm test        # unit tests run anywhere; integration tests need DATABASE_URL
+pnpm test:e2e    # Playwright; starts the app itself, also needs DATABASE_URL
 pnpm typecheck
 ```
 
 CI runs typecheck plus the full suite against a real Postgres service container
-on every push.
+on every push, and the end-to-end suite beside it in a job with a browser.
 
 ## What is deliberately not here
 
@@ -218,5 +236,10 @@ on every push.
   the workspace the caller belongs to, not a view across tenants. A user who
   belongs to several tenants can say which one on the API with `x-tenant-id`,
   but the account page has no picker.
+- **An end-to-end run against Stripe itself.** The suite drives the real
+  routes with the in-memory gateway, so it proves this application's guarantees
+  and none of Stripe's. Pointing it at a test-mode account and a real test
+  clock would need credentials CI does not have, and would then fail for
+  Stripe's outages as readily as for a bug here.
 - **A real model call.** `/api/assistant` returns a stub. The entitlement and
   quota gates in front of it are the part that has to be right first.

@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-09-28
+
+- Playwright end-to-end: checkout with a test clock, webhook replay, entitlement drop on cancel — the three claims a customer would notice are now checked through the real routes in a browser, against the in-memory gateway because CI has no Stripe account.
+
 ## 2026-09-27
 
 - Admin transactions page: filters plus cursor pagination over subscriptions and API-key usage — a keyset cursor rather than an offset, so a checkout landing while the list is being read cannot serve one row twice and hide another.
