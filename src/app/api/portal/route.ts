@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { StripeProvider } from "@/providers/stripe";
+import { billingProvider } from "@/providers";
 import { startPortalSession } from "@/server/billing.service";
 import { withSession } from "@/server/with-session";
 import { env } from "@/lib/env";
@@ -22,7 +22,7 @@ export const POST = withSession(async (request, { tenantId }) => {
   }
 
   const e = env();
-  const provider = new StripeProvider(e.STRIPE_SECRET_KEY, e.STRIPE_WEBHOOK_SECRET);
+  const provider = billingProvider();
   const result = await startPortalSession(provider, { tenantId, appUrl: e.APP_URL });
 
   if (!result.ok) {

@@ -1,13 +1,13 @@
 import { z } from "zod";
 import { isPlanKey } from "@/domain/entitlements";
-import { StripeProvider } from "@/providers/stripe";
+import { billingProvider } from "@/providers";
 import {
   confirmPlanChange,
   previewPlanChange,
   type PlanChangeFailure,
 } from "@/server/billing.service";
 import { withSession } from "@/server/with-session";
-import { env, priceRefFor } from "@/lib/env";
+import { priceRefFor } from "@/lib/env";
 
 export const runtime = "nodejs";
 
@@ -48,8 +48,7 @@ export const POST = withSession(async (request, { tenantId }) => {
   const priceRef = priceRefFor(planKey);
   if (!priceRef) return refuse("not_purchasable");
 
-  const e = env();
-  const provider = new StripeProvider(e.STRIPE_SECRET_KEY, e.STRIPE_WEBHOOK_SECRET);
+  const provider = billingProvider();
 
   if (!("prorationDate" in parsed.data)) {
     const result = await previewPlanChange(provider, { tenantId, planKey, priceRef });

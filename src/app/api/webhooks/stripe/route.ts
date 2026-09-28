@@ -1,5 +1,5 @@
 import { WebhookVerificationError } from "@/domain/billing-event";
-import { StripeProvider } from "@/providers/stripe";
+import { billingProvider } from "@/providers";
 import { applyEvent } from "@/server/billing.service";
 import { notifyDunning } from "@/server/dunning";
 import { env } from "@/lib/env";
@@ -15,7 +15,7 @@ export async function POST(request: Request) {
   const rawBody = await request.text();
 
   const e = env();
-  const provider = new StripeProvider(e.STRIPE_SECRET_KEY, e.STRIPE_WEBHOOK_SECRET);
+  const provider = billingProvider();
 
   let event;
   try {

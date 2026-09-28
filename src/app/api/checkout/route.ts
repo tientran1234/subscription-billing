@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { isPlanKey } from "@/domain/entitlements";
-import { StripeProvider } from "@/providers/stripe";
+import { billingProvider } from "@/providers";
 import { startCheckout } from "@/server/billing.service";
 import { withSession } from "@/server/with-session";
 import { env, priceRefFor } from "@/lib/env";
@@ -29,7 +29,7 @@ export const POST = withSession(async (request, { tenantId, email }) => {
   }
 
   const e = env();
-  const provider = new StripeProvider(e.STRIPE_SECRET_KEY, e.STRIPE_WEBHOOK_SECRET);
+  const provider = billingProvider();
   const result = await startCheckout(provider, {
     tenantId,
     planKey: parsed.data.planKey,
