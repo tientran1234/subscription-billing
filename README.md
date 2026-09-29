@@ -86,7 +86,12 @@ snapshots it onto the proration invoice, and `planKey` moves when that invoice i
 paid. A card that declines therefore leaves the tenant on the plan they are
 still paying for, and a renewal raised before the upgrade but delivered after it
 cannot put them back on the plan they left — it is older than the period already
-stored, so it moves the dates and nothing else.
+stored, so it moves the dates and nothing else. The account page is where a
+customer does this: the picker draws a button only for the plans
+`planChangeOptions` allows — the eligibility rule folded over `PLANS`, so the
+page cannot offer a change the route then refuses — and it asks for the price
+on the click rather than with the page, because a proration rendered at page
+load is stale before anyone reads it.
 
 **A dunning notice is claimed before it is sent.**
 A failed renewal mails the customer; a cancellation says goodbye. Both claim
@@ -186,8 +191,8 @@ src/
     api/portal           a link into Stripe's billing portal, for the caller's tenant
     api/plan-change      quote a proration, then change plan at the quoted price
     [locale]/            pricing, account and transactions pages, en + vi
-tests/               92 unit + 48 integration against real Postgres
-  e2e/               Playwright: checkout, webhook replay, the cancel drop
+tests/               98 unit + 48 integration against real Postgres
+  e2e/               Playwright: checkout, replay, the cancel drop, the plan change
 ```
 
 ## Run it
@@ -205,10 +210,11 @@ pnpm stripe:listen
 
 Sign in at `/api/auth/signin` — Auth.js's own page is enough to click a magic
 link. First sign-in provisions a tenant for the address, or joins the tenant
-already seeded with it. `/account` then shows what that tenant may do and the
-link into Stripe's portal; the portal needs to be enabled once, in the Stripe
-dashboard under Settings → Billing → Customer portal. `/admin` lists that
-tenant's subscription attempts and what each API key spent, a page at a time.
+already seeded with it. `/account` then shows what that tenant may do, the
+plans it can move to, and the link into Stripe's portal; the portal needs to be
+enabled once, in the Stripe dashboard under Settings → Billing → Customer
+portal. `/admin` lists that tenant's subscription attempts and what each API
+key spent, a page at a time.
 
 ```bash
 pnpm test        # unit tests run anywhere; integration tests need DATABASE_URL
@@ -221,8 +227,6 @@ on every push, and the end-to-end suite beside it in a job with a browser.
 
 ## What is deliberately not here
 
-- **A plan picker on the account page.** Plan changes are quoted and confirmed
-  over `/api/plan-change`; the two-step flow has no UI in front of it yet.
 - **A dunning schedule.** Entering `PAST_DUE` and leaving it now mails the
   customer, but nothing here decides when the retries run out: Stripe's own
   retry settings do, and the cancellation they end in arrives as a webhook like

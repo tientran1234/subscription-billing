@@ -8,3 +8,4 @@ One item per pull request, in order.
 - [x] Dunning hooks: on `PAST_DUE` send a react-email template; on `CANCELED` a goodbye; both idempotent per event id.
 - [x] Admin transactions page: filters + cursor pagination over subscriptions and API-key usage.
 - [x] Playwright end-to-end: checkout with a Stripe test clock, webhook replay, entitlement drop on cancel.
+- [x] Plan picker on the account page: quote the proration, show what is due now, confirm at the quoted price.
