@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { PLANS } from "@/domain/entitlements";
 import {
   QUOTE_TTL_SECONDS,
   checkPlanChange,
   isQuoteUsable,
+  planChangeOptions,
   planKeyForPaidInvoice,
 } from "@/domain/plan-change";
 
@@ -34,6 +36,61 @@ describe("plan change eligibility", () => {
       expect(checkPlanChange({ planKey: "pro", status }, "scale")).toMatchObject({
         reason: "not_billable",
       });
+    }
+  });
+});
+
+describe("plan picker options", () => {
+  const offered = (current: { planKey: string; status: string }) =>
+    planChangeOptions(current)
+      .filter((option) => option.refusal === null)
+      .map((option) => option.planKey);
+
+  it("offers the paid plans the tenant is not on", () => {
+    expect(offered(active("pro"))).toEqual(["scale"]);
+    expect(offered(active("scale"))).toEqual(["pro"]);
+  });
+
+  it("marks the plan the tenant is on instead of offering it", () => {
+    const options = planChangeOptions(active("pro"));
+    expect(options.find((option) => option.current)).toMatchObject({
+      planKey: "pro",
+      refusal: "same_plan",
+    });
+  });
+
+  // Downgrading to Free is a cancellation, and cancellations happen at the
+  // provider. A button here would take money off a subscription this app is
+  // not allowed to end.
+  it("never offers Free", () => {
+    for (const planKey of ["free", "pro", "scale"]) {
+      expect(offered(active(planKey))).not.toContain("free");
+    }
+  });
+
+  it("offers nothing while the subscription is not billable", () => {
+    for (const status of ["PENDING", "PAST_DUE", "CANCELED", "EXPIRED"]) {
+      expect(offered({ planKey: "pro", status })).toEqual([]);
+    }
+  });
+
+  it("covers every plan we sell, so a new one needs no edit here", () => {
+    expect(planChangeOptions(active("pro")).map((option) => option.planKey)).toEqual(
+      Object.keys(PLANS),
+    );
+  });
+
+  // The guarantee the picker exists to keep: it draws a button only where the
+  // confirm call would say yes. If these two ever disagree, the customer is
+  // the one who finds out.
+  it("agrees with the rule the route enforces, for every plan and status", () => {
+    for (const status of ["ACTIVE", "PENDING", "PAST_DUE", "CANCELED", "EXPIRED"]) {
+      for (const planKey of Object.keys(PLANS)) {
+        for (const option of planChangeOptions({ planKey, status })) {
+          const check = checkPlanChange({ planKey, status }, option.planKey);
+          expect(option.refusal).toBe(check.ok ? null : check.reason);
+        }
+      }
     }
   });
 });

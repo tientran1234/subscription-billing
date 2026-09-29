@@ -15,7 +15,7 @@
  * `planKey` is allowed to move after checkout.
  */
 
-import { isPlanKey, type PlanKey } from "./entitlements";
+import { PLANS, isPlanKey, type PlanKey } from "./entitlements";
 
 export type PlanChangeRefusal =
   /** Not a plan we sell. */
@@ -47,6 +47,39 @@ export function checkPlanChange(
   if (current.status !== "ACTIVE") return { ok: false, reason: "not_billable" };
   if (current.planKey === target) return { ok: false, reason: "same_plan" };
   return { ok: true, planKey: target };
+}
+
+export interface PlanChangeOption {
+  planKey: PlanKey;
+  /** The plan the tenant is on now. The picker marks it rather than offering it. */
+  current: boolean;
+  /** Null when the move is allowed; otherwise why this plan is not on offer. */
+  refusal: PlanChangeRefusal | null;
+}
+
+/**
+ * Every plan we sell, each annotated with whether this tenant may move to it.
+ *
+ * The picker gets no second opinion: each answer comes from `checkPlanChange`,
+ * the function the route already runs, so a plan the page offers is a plan the
+ * confirm call accepts. A button that leads to a 409 is worse than a button
+ * that was never drawn — the customer is refused for a choice we offered them.
+ *
+ * Plans come from `PLANS`, so adding one puts it in front of customers without
+ * anybody remembering to edit a page.
+ */
+export function planChangeOptions(current: {
+  planKey: string;
+  status: string;
+}): PlanChangeOption[] {
+  return (Object.keys(PLANS) as PlanKey[]).map((planKey) => {
+    const check = checkPlanChange(current, planKey);
+    return {
+      planKey,
+      current: planKey === current.planKey,
+      refusal: check.ok ? null : check.reason,
+    };
+  });
 }
 
 /** How long a proration quote stays binding. */
