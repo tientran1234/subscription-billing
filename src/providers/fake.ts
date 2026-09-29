@@ -18,7 +18,7 @@ import {
 } from "@/domain/billing-event";
 
 /** What a preview quotes. Made up — the fake is here for the flow, not the money. */
-const FAKE_PRORATION_MINOR = 1_234;
+export const FAKE_PRORATION_MINOR = 1_234;
 
 export class FakeProvider implements IBillingProvider {
   readonly name = "fake";

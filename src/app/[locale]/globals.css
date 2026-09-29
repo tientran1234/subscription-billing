@@ -31,6 +31,12 @@ h1 { font-size: 2rem; margin: 0 0 8px; letter-spacing: -0.02em; }
 .features { list-style: none; padding: 0; margin: 16px 0 0; color: var(--muted); }
 .features li { padding: 3px 0; }
 .locales { display: flex; gap: 12px; margin-bottom: 32px; font-size: 0.9rem; }
+.section { font-size: 1.1rem; margin: 40px 0 12px; letter-spacing: -0.01em; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.quote { border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
+.quote dl { display: grid; grid-template-columns: auto auto; gap: 4px 20px; justify-content: start; margin: 0 0 20px; }
+.quote dt { color: var(--muted); }
+.quote dd { margin: 0; font-variant-numeric: tabular-nums; }
 .list h2 { font-size: 1.1rem; margin: 40px 0 12px; letter-spacing: -0.01em; }
 .filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; font-size: 0.85rem; }
 .filters a { border: 1px solid var(--line); border-radius: 999px; padding: 3px 11px; text-decoration: none; color: var(--muted); }
@@ -50,3 +56,4 @@ a { color: inherit; }
   cursor: pointer;
 }
 .button:disabled { opacity: 0.6; cursor: default; }
+.button.secondary { color: var(--fg); background: transparent; border: 1px solid var(--line); }

@@ -288,3 +288,24 @@ export async function entitlementsForTenant(tenantId: string): Promise<Entitleme
   if (!subscription) return entitlementsFor("free", "NONE");
   return entitlementsFor(subscription.planKey, subscription.status);
 }
+
+/**
+ * The plan and status a plan change would act on, or `null` for a tenant that
+ * has never reached checkout — there is no plan to move, and that customer
+ * subscribes rather than changes.
+ *
+ * The subscription's own plan, deliberately, and not the entitlements derived
+ * from it: PAST_DUE keeps paid access, so the derived plan reads "pro" while
+ * the subscription behind it is one no proration may be charged against. A
+ * picker fed entitlements would offer a change the route then refuses.
+ */
+export async function currentPlanFor(
+  tenantId: string,
+): Promise<{ planKey: string; status: string } | null> {
+  const subscription = await db.subscription.findFirst({
+    where: { tenantId },
+    orderBy: { createdAt: "desc" },
+  });
+  if (!subscription) return null;
+  return { planKey: subscription.planKey, status: subscription.status };
+}
