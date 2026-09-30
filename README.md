@@ -74,6 +74,30 @@ added by accident. The portal link is minted per click, because Stripe's is
 single-use and expires in minutes. The customer id it opens for is resolved
 from the caller's own tenant, never read off the request.
 
+**A trial is the plan, on a status of its own.**
+`trialDays` on a plan is what a checkout asks the gateway for, read off
+`PLANS` rather than accepted from the route, so nobody can ask for a longer
+trial than we sell. It comes back as `TRIALING`, which is a status and not an
+early `ACTIVE`, because the state machine has to be able to tell a trial that
+lapsed from a renewal that failed — and because `ACTIVE → TRIALING` is then not
+legal, so a late or replayed trial-start delivery cannot hand a paying customer
+a second free month. Entitlements during the trial are the plan's own: a trial
+exists so the customer can judge what they would be buying, and spent on Free it
+would judge a product nobody is selling them. Reading the trial back is the
+awkward half, because a completed checkout on a trialling plan has taken no
+money and Stripe's session object carries no trial field to say why — so
+`createCheckout` writes the trial into the session metadata and normalization
+reads it there, the route `planKey` already takes. Without that the session
+would activate the subscription in the same instant the trial began, and the
+first real invoice would arrive as a renewal of a month nobody was charged for.
+The trial ending is handled like every other delivery and moves nothing: the id
+is claimed, the event is recorded under its own type rather than as `unknown`,
+and that is all, because which outcome follows — an invoice paid or one refused
+— is the gateway's to report in its own event rather than ours to guess. Nothing
+is mailed about it either; the mail that matters is the failed payment after it,
+which the dunning hooks already send. A trial cannot change plan, for the reason
+`PAST_DUE` cannot: there is no invoice being billed to prorate against.
+
 **Changing plan moves a price, not a status.**
 Upgrading mid-cycle does go through the app, because it is not the thing
 cancelling is. `/api/plan-change` quotes the proration with
@@ -191,7 +215,7 @@ src/
     api/portal           a link into Stripe's billing portal, for the caller's tenant
     api/plan-change      quote a proration, then change plan at the quoted price
     [locale]/            pricing, account and transactions pages, en + vi
-tests/               98 unit + 48 integration against real Postgres
+tests/               109 unit + 52 integration against real Postgres
   e2e/               Playwright: checkout, replay, the cancel drop, the plan change
 ```
 

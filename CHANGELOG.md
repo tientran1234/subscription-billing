@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-09-30
+
+- Trials: `trialDays` on a plan adds a `TRIALING` status under the same forward-only rules, entitlements during trial equal the plan, and the trial-ending webhook is handled idempotently like every other — a trial had nowhere to live but an early `ACTIVE`, which cannot tell a lapsed trial from a failed renewal and would let a replayed delivery hand a paying customer a second free month.
+
 ## 2026-09-29
 
 - Plan picker on the account page: quote the proration, show what is due now, confirm at the quoted price — the two-step flow had no UI in front of it, and the buttons it draws come from the rule the route enforces, so the page cannot offer a change that is then refused.
