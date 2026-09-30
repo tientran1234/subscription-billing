@@ -7,7 +7,8 @@
     "choose": "Chọn gói {plan}",
     "current": "Gói hiện tại",
     "includes": "Bao gồm",
-    "quota": "{count} tin nhắn AI mỗi tháng"
+    "quota": "{count} tin nhắn AI mỗi tháng",
+    "trial": "Dùng thử miễn phí {days} ngày"
   },
   "billing": {
     "successTitle": "Đã nhận thanh toán",

@@ -12,10 +12,12 @@ import {
   confirmPlanChange,
   entitlementsForTenant,
   previewPlanChange,
+  startCheckout,
   startPortalSession,
 } from "@/server/billing.service";
 import { meter } from "@/server/usage";
 import type { BillingEvent } from "@/domain/billing-event";
+import { PLANS } from "@/domain/entitlements";
 import { FakeProvider } from "@/providers/fake";
 import { QUOTE_TTL_SECONDS } from "@/domain/plan-change";
 
@@ -148,6 +150,108 @@ describe.skipIf(!hasDatabase)("billing service", () => {
 
     expect(outcome).toBe("renewed");
     expect((await entitlementsForTenant(tenantId)).planKey).toBe("scale");
+  });
+
+  it("runs a trial that converts, and leaves the trial-ending notice alone", async () => {
+    const started = await applyEvent(
+      "stripe",
+      event({
+        providerEventId: "evt_1",
+        type: "subscription_trialing",
+        checkoutRef: "cs_test_1",
+        providerRef: "sub_1",
+      }),
+    );
+    expect(started).toBe("transitioned");
+
+    let row = await db.subscription.findUniqueOrThrow({ where: { id: subscriptionId } });
+    expect(row.status).toBe("TRIALING");
+    // The whole point of the trial: the plan, not a sample of it.
+    expect((await entitlementsForTenant(tenantId)).planKey).toBe("pro");
+
+    // The provider's heads-up. Recorded, and it moves nothing — a replay of it
+    // loses on the event id like every other delivery.
+    const warning = event({
+      providerEventId: "evt_2",
+      type: "trial_ending",
+      providerRef: "sub_1",
+    });
+    expect(await applyEvent("stripe", warning)).toBe("ignored");
+    expect(await applyEvent("stripe", warning)).toBe("duplicate");
+
+    row = await db.subscription.findUniqueOrThrow({ where: { id: subscriptionId } });
+    expect(row.status).toBe("TRIALING");
+
+    // The first invoice is paid: now it is a subscription.
+    const converted = await applyEvent(
+      "stripe",
+      event({ providerEventId: "evt_3", providerRef: "sub_1" }),
+    );
+    expect(converted).toBe("transitioned");
+    row = await db.subscription.findUniqueOrThrow({ where: { id: subscriptionId } });
+    expect(row.status).toBe("ACTIVE");
+  });
+
+  it("moves a trial whose first invoice is refused into dunning, not out of access", async () => {
+    await applyEvent(
+      "stripe",
+      event({
+        providerEventId: "evt_1",
+        type: "subscription_trialing",
+        checkoutRef: "cs_test_1",
+        providerRef: "sub_1",
+      }),
+    );
+
+    const outcome = await applyEvent(
+      "stripe",
+      event({ providerEventId: "evt_2", type: "payment_failed", providerRef: "sub_1" }),
+    );
+
+    expect(outcome).toBe("transitioned");
+    const row = await db.subscription.findUniqueOrThrow({ where: { id: subscriptionId } });
+    expect(row.status).toBe("PAST_DUE");
+    // PAST_DUE keeps paid access whichever status it came from: the card can
+    // still be fixed, and cutting them off mid-retry is the bug that rule exists
+    // to prevent.
+    expect((await entitlementsForTenant(tenantId)).planKey).toBe("pro");
+  });
+
+  it("never puts an active subscription back into a trial", async () => {
+    // A trial start delivered after the activation it preceded. Out-of-order
+    // deliveries are the norm, and this one would be a free month.
+    await applyEvent("stripe", event({ providerEventId: "evt_1", checkoutRef: "cs_test_1", providerRef: "sub_1" }));
+
+    const late = await applyEvent(
+      "stripe",
+      event({
+        providerEventId: "evt_2",
+        type: "subscription_trialing",
+        checkoutRef: "cs_test_1",
+      }),
+    );
+
+    expect(late).toBe("no_transition");
+    const row = await db.subscription.findUniqueOrThrow({ where: { id: subscriptionId } });
+    expect(row.status).toBe("ACTIVE");
+  });
+
+  it("hands the gateway the trial the plan sells, and no trial on a plan without one", async () => {
+    const provider = new FakeProvider();
+    await startCheckout(provider, {
+      tenantId,
+      planKey: "pro",
+      priceRef: "price_pro",
+      appUrl: "https://x",
+    });
+    await startCheckout(provider, {
+      tenantId,
+      planKey: "free",
+      priceRef: "price_free",
+      appUrl: "https://x",
+    });
+
+    expect(provider.checkouts.map((c) => c.trialDays)).toEqual([PLANS.pro.trialDays, 0]);
   });
 
   it("counts every metered call and blocks the one past the limit", async () => {

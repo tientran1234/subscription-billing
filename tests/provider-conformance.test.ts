@@ -103,6 +103,19 @@ describe("fake provider", () => {
     expect(result.checkoutUrl).toMatch(/^https?:\/\//);
     expect(result.checkoutRef).toBeTruthy();
   });
+
+  it("records the trial a checkout asked for", async () => {
+    const provider = new FakeProvider();
+    await provider.createCheckout({
+      subscriptionId: "sub_trial",
+      planKey: "pro",
+      priceRef: "price_x",
+      trialDays: 14,
+      successUrl: "https://x/ok",
+      cancelUrl: "https://x/no",
+    });
+    expect(provider.checkouts).toMatchObject([{ planKey: "pro", trialDays: 14 }]);
+  });
 });
 
 const stripeEvent = (type: string, object: unknown) =>
@@ -124,6 +137,56 @@ describe("stripe normalisation", () => {
       providerRef: "sub_1",
       customerRef: "cus_1",
       planKey: "pro",
+    });
+  });
+
+  // The session takes no money when the plan it is for has a trial, so reading
+  // it as an activation would spend the trial in the same millisecond it
+  // started — and the customer's first invoice would then arrive as a renewal
+  // of a month they were never charged for.
+  it("starts a trial, not a subscription, when the checkout granted one", () => {
+    const event = normalize(
+      stripeEvent("checkout.session.completed", {
+        id: "cs_trial",
+        subscription: "sub_trial",
+        customer: "cus_trial",
+        metadata: { planKey: "pro", trialDays: "14" },
+      }),
+    );
+    expect(event).toMatchObject({
+      type: "subscription_trialing",
+      checkoutRef: "cs_trial",
+      providerRef: "sub_trial",
+      customerRef: "cus_trial",
+      planKey: "pro",
+    });
+  });
+
+  it("treats a checkout with no trial on it as the activation it is", () => {
+    const event = normalize(
+      stripeEvent("checkout.session.completed", {
+        id: "cs_paid",
+        metadata: { planKey: "pro", trialDays: "0" },
+      }),
+    );
+    expect(event.type).toBe("subscription_activated");
+  });
+
+  it("maps the trial-ending warning to its own type, and carries the refs", () => {
+    // Its own type rather than `unknown`: the event log is read by people, and
+    // "a trial is about to lapse" is worth finding there when the invoice that
+    // follows it fails.
+    expect(
+      normalize(
+        stripeEvent("customer.subscription.trial_will_end", {
+          id: "sub_ending",
+          customer: "cus_ending",
+        }),
+      ),
+    ).toMatchObject({
+      type: "trial_ending",
+      providerRef: "sub_ending",
+      customerRef: "cus_ending",
     });
   });
 

@@ -85,14 +85,25 @@ export class StripeProvider implements IBillingProvider {
   }
 
   async createCheckout(input: CreateCheckoutInput): Promise<CreateCheckoutResult> {
+    const trialDays = input.trialDays ?? 0;
+
     const session = await this.stripe.checkout.sessions.create({
       mode: "subscription",
       line_items: [{ price: input.priceRef, quantity: 1 }],
       // Echoed back on the webhook, so we can find our row without a lookup.
       client_reference_id: input.subscriptionId,
-      metadata: { subscriptionId: input.subscriptionId, planKey: input.planKey },
+      // `trialDays` rides along because the completed-session event has to be
+      // able to say whether a trial was granted, and Stripe's session object
+      // carries no trial field to read it off — the same route `planKey`
+      // already takes to reach us.
+      metadata: {
+        subscriptionId: input.subscriptionId,
+        planKey: input.planKey,
+        ...(trialDays > 0 ? { trialDays: String(trialDays) } : {}),
+      },
       subscription_data: {
         metadata: { subscriptionId: input.subscriptionId, planKey: input.planKey },
+        ...(trialDays > 0 ? { trial_period_days: trialDays } : {}),
       },
       customer_email: input.customerEmail,
       success_url: input.successUrl,
@@ -171,9 +182,15 @@ export function normalize(event: Stripe.Event): BillingEvent {
   switch (event.type) {
     case "checkout.session.completed": {
       const s = object as SessionLike;
+      // A checkout on a plan with a trial completes without taking any money,
+      // so it activates nothing yet. `createCheckout` wrote the trial into the
+      // session's metadata precisely so this branch can tell the two apart.
+      const trialing = Number(s.metadata?.trialDays) > 0;
       return {
         ...base,
-        type: "subscription_activated",
+        type: trialing ? "subscription_trialing" : "subscription_activated",
+        // No period end either way: a session says nothing about when the trial
+        // or the month it started runs out. The first paid invoice brings that.
         checkoutRef: s.id,
         providerRef: refOf(s.subscription),
         customerRef: refOf(s.customer),
@@ -205,6 +222,20 @@ export function normalize(event: Stripe.Event): BillingEvent {
         type: "payment_failed",
         providerRef: refOf(i.subscription),
         customerRef: refOf(i.customer),
+      };
+    }
+
+    // A few days before a trial lapses. Normalized under its own name rather
+    // than left `unknown`, because "we know what this is and nothing moves" is
+    // worth reading back out of the event log — see statusForEvent, which maps
+    // it to no status at all.
+    case "customer.subscription.trial_will_end": {
+      const s = object as SubscriptionLike;
+      return {
+        ...base,
+        type: "trial_ending",
+        providerRef: s.id,
+        customerRef: refOf(s.customer),
       };
     }
 

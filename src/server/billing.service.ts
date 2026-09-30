@@ -19,7 +19,7 @@ import {
 } from "@/domain/plan-change";
 import { portalCustomerFor } from "@/domain/portal";
 import { predecessorsOf, statusForEvent } from "@/domain/subscription";
-import { entitlementsFor, type Entitlements } from "@/domain/entitlements";
+import { entitlementsFor, trialDaysFor, type Entitlements } from "@/domain/entitlements";
 
 export type ApplyOutcome =
   /** Replayed delivery — already processed, nothing done. */
@@ -65,6 +65,9 @@ export async function startCheckout(
     subscriptionId: subscription.id,
     planKey: input.planKey,
     priceRef: input.priceRef,
+    // Read off the plan here rather than accepted from the route: a trial is
+    // something we sell, so no caller gets to ask for a longer one.
+    trialDays: trialDaysFor(input.planKey),
     customerEmail: input.customerEmail,
     successUrl: `${input.appUrl}/billing/success`,
     cancelUrl: `${input.appUrl}/billing/cancel`,

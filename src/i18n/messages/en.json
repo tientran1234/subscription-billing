@@ -7,7 +7,8 @@
     "choose": "Choose {plan}",
     "current": "Current plan",
     "includes": "Includes",
-    "quota": "{count} AI messages per month"
+    "quota": "{count} AI messages per month",
+    "trial": "{days}-day free trial"
   },
   "billing": {
     "successTitle": "Payment received",

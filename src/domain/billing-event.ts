@@ -41,6 +41,11 @@ export interface CreateCheckoutInput {
   planKey: string;
   /** Provider-side price id for that plan (Stripe: price_…). */
   priceRef: string;
+  /**
+   * Days of free trial to grant, from the plan being bought. Omitted or 0 means
+   * the subscription is billed from the start.
+   */
+  trialDays?: number;
   customerEmail?: string;
   successUrl: string;
   cancelUrl: string;

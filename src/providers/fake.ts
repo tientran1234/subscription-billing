@@ -24,17 +24,19 @@ export class FakeProvider implements IBillingProvider {
   readonly name = "fake";
 
   /**
-   * Every preview taken and every plan change made through this provider.
-   * Nothing in the app reads them; they are how a test sees which
-   * subscription was repriced, and that a refused change never reached the
-   * provider at all.
+   * Every checkout opened, preview taken and plan change made through this
+   * provider. Nothing in the app reads them; they are how a test sees which
+   * subscription was repriced, what trial a checkout asked for, and that a
+   * refused change never reached the provider at all.
    */
+  readonly checkouts: CreateCheckoutInput[] = [];
   readonly previews: PreviewPlanChangeInput[] = [];
   readonly planChanges: ChangePlanInput[] = [];
 
   constructor(private readonly secret = "fake-secret") {}
 
   async createCheckout(input: CreateCheckoutInput): Promise<CreateCheckoutResult> {
+    this.checkouts.push(input);
     const checkoutRef = `cs_fake_${input.subscriptionId}`;
     return { checkoutUrl: `https://fake.checkout/${checkoutRef}`, checkoutRef };
   }

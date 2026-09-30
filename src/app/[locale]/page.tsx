@@ -43,6 +43,7 @@ export default async function PricingPage({
                 <li key={f}>{f}</li>
               ))}
               <li>{t("quota", { count: plan.quotas.aiMessages })}</li>
+              {plan.trialDays > 0 && <li>{t("trial", { days: plan.trialDays })}</li>}
             </ul>
           </section>
         ))}
