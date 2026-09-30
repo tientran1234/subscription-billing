@@ -9,6 +9,10 @@
 
 export type BillingEventType =
   | "subscription_activated"
+  /** Checkout completed on a plan with a trial: access now, first invoice later. */
+  | "subscription_trialing"
+  /** The provider's heads-up that a trial is about to run out. */
+  | "trial_ending"
   | "payment_failed"
   | "subscription_canceled"
   | "subscription_expired"

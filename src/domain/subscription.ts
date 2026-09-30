@@ -11,6 +11,7 @@ import type { BillingEventType } from "./billing-event.js";
 
 export const SUBSCRIPTION_STATUSES = [
   "PENDING",
+  "TRIALING",
   "ACTIVE",
   "PAST_DUE",
   "CANCELED",
@@ -20,7 +21,13 @@ export const SUBSCRIPTION_STATUSES = [
 export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number];
 
 const ALLOWED: Record<SubscriptionStatus, SubscriptionStatus[]> = {
-  PENDING: ["ACTIVE", "EXPIRED"],
+  PENDING: ["TRIALING", "ACTIVE", "EXPIRED"],
+  // A trial ends exactly once, and every way out of it is forward: the first
+  // invoice is paid, it is not, the customer leaves, or the provider gives up.
+  // Nothing re-enters it — ACTIVE → TRIALING would hand a paying customer a
+  // second free month, and TRIALING → TRIALING is what makes a replayed trial
+  // start a no-op in Postgres rather than only in Node.
+  TRIALING: ["ACTIVE", "PAST_DUE", "CANCELED", "EXPIRED"],
   ACTIVE: ["PAST_DUE", "CANCELED"],
   // Dunning: a failed renewal can recover, be cancelled, or run out of retries.
   PAST_DUE: ["ACTIVE", "CANCELED", "EXPIRED"],
@@ -49,6 +56,14 @@ export function statusForEvent(type: BillingEventType): SubscriptionStatus | nul
   switch (type) {
     case "subscription_activated":
       return "ACTIVE";
+    case "subscription_trialing":
+      return "TRIALING";
+    // Deliberately no status. The trial running out is not itself a change —
+    // what follows it is, and that arrives as its own event: an invoice paid,
+    // or one that fails. Mapping it to a status here would mean guessing which
+    // of the two happened before the provider has said.
+    case "trial_ending":
+      return null;
     case "payment_failed":
       return "PAST_DUE";
     case "subscription_canceled":

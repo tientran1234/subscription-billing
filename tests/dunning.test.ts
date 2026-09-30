@@ -18,9 +18,10 @@ describe("which status earns a notice", () => {
 
   it("stays quiet about every other status", () => {
     // Activation and renewal are not news the customer needs mailing about,
-    // and EXPIRED is a checkout that was abandoned — nobody to write to.
+    // EXPIRED is a checkout that was abandoned — nobody to write to — and a
+    // trial starting is something the customer did a moment earlier.
     const quiet = SUBSCRIPTION_STATUSES.filter((s) => noticeForStatus(s) === null);
-    expect(quiet).toEqual(["PENDING", "ACTIVE", "EXPIRED"]);
+    expect(quiet).toEqual(["PENDING", "TRIALING", "ACTIVE", "EXPIRED"]);
   });
 });
 

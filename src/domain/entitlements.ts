@@ -16,18 +16,21 @@ export const PLANS = {
     priceMinor: 0,
     features: ["assistant"] as Feature[],
     quotas: { aiMessages: 50 },
+    trialDays: 0,
   },
   pro: {
     name: "Pro",
     priceMinor: 1900,
     features: ["assistant", "export", "api"] as Feature[],
     quotas: { aiMessages: 2_000 },
+    trialDays: 14,
   },
   scale: {
     name: "Scale",
     priceMinor: 9900,
     features: ["assistant", "export", "api", "sso"] as Feature[],
     quotas: { aiMessages: 20_000 },
+    trialDays: 14,
   },
 } as const;
 
@@ -38,6 +41,15 @@ export function isPlanKey(value: unknown): value is PlanKey {
   return typeof value === "string" && value in PLANS;
 }
 
+/**
+ * How long a trial on this plan runs, in days. Zero means no trial, which is
+ * also the answer for a plan we no longer sell: a trial has to be asked for at
+ * checkout, and nothing can ask for one on a plan that is not there.
+ */
+export function trialDaysFor(planKey: string): number {
+  return isPlanKey(planKey) ? PLANS[planKey].trialDays : 0;
+}
+
 export interface Entitlements {
   planKey: PlanKey;
   features: readonly Feature[];
@@ -46,10 +58,13 @@ export interface Entitlements {
 
 /**
  * PAST_DUE keeps paid access on purpose: a card that failed its renewal is a
- * dunning problem, not a reason to lock someone out mid-month. Every other
+ * dunning problem, not a reason to lock someone out mid-month. TRIALING is the
+ * plan and not a preview of it — a trial exists to show the customer what they
+ * would be buying, so the day it converts nothing about their access changes,
+ * and the thing they were evaluating is the thing they had. Every other
  * non-active status falls back to Free.
  */
-const STATUSES_WITH_PAID_ACCESS = new Set(["ACTIVE", "PAST_DUE"]);
+const STATUSES_WITH_PAID_ACCESS = new Set(["ACTIVE", "TRIALING", "PAST_DUE"]);
 
 export function entitlementsFor(planKey: string, status: string): Entitlements {
   const effective: PlanKey =

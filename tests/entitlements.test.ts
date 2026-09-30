@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canUse, entitlementsFor, remaining } from "@/domain/entitlements";
+import { PLANS, canUse, entitlementsFor, remaining, trialDaysFor } from "@/domain/entitlements";
 
 describe("entitlements", () => {
   it("gives a paying active tenant their plan", () => {
@@ -28,8 +28,28 @@ describe("entitlements", () => {
     expect(entitlementsFor("legacy-plan", "ACTIVE").planKey).toBe("free");
   });
 
+  it("gives a trialing tenant exactly what the plan gives a paying one", () => {
+    // The point of a trial is that the customer evaluates the real plan. Drop
+    // TRIALING from the paid statuses and they spend the trial on Free,
+    // judging a product nobody is selling them.
+    expect(entitlementsFor("scale", "TRIALING")).toEqual(entitlementsFor("scale", "ACTIVE"));
+    expect(canUse(entitlementsFor("scale", "TRIALING"), "sso")).toBe(true);
+  });
+
   it("never reports negative quota left", () => {
     const e = entitlementsFor("free", "ACTIVE");
     expect(remaining(e, "aiMessages", 999)).toBe(0);
+  });
+});
+
+describe("trial length", () => {
+  it("reads the trial off the plan that is being bought", () => {
+    expect(trialDaysFor("pro")).toBe(PLANS.pro.trialDays);
+    expect(trialDaysFor("pro")).toBeGreaterThan(0);
+  });
+
+  it("offers no trial on Free, which is not sold, or on a plan we dropped", () => {
+    expect(trialDaysFor("free")).toBe(0);
+    expect(trialDaysFor("legacy-plan")).toBe(0);
   });
 });
