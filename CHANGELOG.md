@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-02
+
+- Seats: `quantity` on checkout and subscription, seat count in entitlements, proration preview on seat change, and a guard that refuses to drop seats below the seats in use — the gateway will happily reprice a workspace down to fewer seats than it has people, and nothing in the credit note says whose access paid for the reduction.
+
 ## 2026-09-30
 
 - Trials: `trialDays` on a plan adds a `TRIALING` status under the same forward-only rules, entitlements during trial equal the plan, and the trial-ending webhook is handled idempotently like every other — a trial had nowhere to live but an early `ACTIVE`, which cannot tell a lapsed trial from a failed renewal and would let a replayed delivery hand a paying customer a second free month.

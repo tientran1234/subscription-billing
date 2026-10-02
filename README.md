@@ -98,6 +98,30 @@ is mailed about it either; the mail that matters is the failed payment after it,
 which the dunning hooks already send. A trial cannot change plan, for the reason
 `PAST_DUE` cannot: there is no invoice being billed to prorate against.
 
+**A seat is a quantity, and the ones in use are a floor.**
+`seats` on a checkout is the `quantity` on the provider's price, and it is
+recorded on the subscription because that is what was bought. It comes back the
+way `planKey` does — off the metadata the paid invoice snapshots, and
+deliberately not off its line items, because a proration invoice has several
+lines in no promised order and the quantity on the first of them may be the one
+being credited rather than the one being charged. A seat change is therefore
+evidence that money was taken, which keeps `applyEvent` the only writer of what
+a tenant has. Entitlements derive the count like they derive the plan, so a
+cancelled workspace falls back to the one seat its owner holds; features and
+quotas stay the workspace's, because buying a seat buys a person access and not
+another month's worth of messages. The floor is the part a gateway will not do
+for you: dropping below the seats in use pays for itself by taking somebody's
+access away, and nothing in the credit note says whose. So the count in use —
+read from the workspace's own memberships rather than assumed to be one — is
+refused before anything is quoted, at checkout as much as on a change, and
+whoever is leaving is removed first. A plan move that names no seats keeps the
+ones already paid for: defaulting to one there would take four seats off a
+workspace mid-upgrade and bill them a proration for it. The picker folds the
+eligibility rule over the number in the field rather than over a set rendered
+with the page, because which plans may be moved to depends on the count being
+asked for — and confirming sends the count that was quoted rather than the one
+in the field, so the price on the screen is the price for those seats.
+
 **Changing plan moves a price, not a status.**
 Upgrading mid-cycle does go through the app, because it is not the thing
 cancelling is. `/api/plan-change` quotes the proration with
@@ -191,6 +215,7 @@ src/
     subscription.ts    status enum + legal transitions + event mapping
     entitlements.ts    plans, features, quotas; entitlements as a pure function
     plan-change.ts     when a plan may move, and how long a quoted price holds
+    seats.ts           how many seats we sell, and the floor the ones in use set
     membership.ts      which tenant a signed-in caller may act for
     dunning.ts         which status a customer is worth writing to about
     transactions.ts    cursor ordering and the filters the ledger may be read by
@@ -215,7 +240,7 @@ src/
     api/portal           a link into Stripe's billing portal, for the caller's tenant
     api/plan-change      quote a proration, then change plan at the quoted price
     [locale]/            pricing, account and transactions pages, en + vi
-tests/               109 unit + 52 integration against real Postgres
+tests/               132 unit + 61 integration against real Postgres
   e2e/               Playwright: checkout, replay, the cancel drop, the plan change
 ```
 
@@ -235,10 +260,10 @@ pnpm stripe:listen
 Sign in at `/api/auth/signin` — Auth.js's own page is enough to click a magic
 link. First sign-in provisions a tenant for the address, or joins the tenant
 already seeded with it. `/account` then shows what that tenant may do, the
-plans it can move to, and the link into Stripe's portal; the portal needs to be
-enabled once, in the Stripe dashboard under Settings → Billing → Customer
-portal. `/admin` lists that tenant's subscription attempts and what each API
-key spent, a page at a time.
+plans it can move to, the seats it is paying for, and the link into Stripe's
+portal; the portal needs to be enabled once, in the Stripe dashboard under
+Settings → Billing → Customer portal. `/admin` lists that tenant's subscription
+attempts and what each API key spent, a page at a time.
 
 ```bash
 pnpm test        # unit tests run anywhere; integration tests need DATABASE_URL
@@ -260,10 +285,13 @@ on every push, and the end-to-end suite beside it in a job with a browser.
   than an application ever will.
 - **Invites and roles.** A membership is provisioned for the address that signs
   in; there is nothing that adds a second person to a tenant, and every member
-  can do everything. That is also what "admin" means on the transactions page —
-  the workspace the caller belongs to, not a view across tenants. A user who
-  belongs to several tenants can say which one on the API with `x-tenant-id`,
-  but the account page has no picker.
+  can do everything. Seats are sold and billed per person all the same, and the
+  floor under a reduction is counted from those memberships rather than assumed
+  — the day invites land is not the day to remember that seats had a rule. That
+  is also what "admin" means on the transactions page — the workspace the caller
+  belongs to, not a view across tenants. A user who belongs to several tenants
+  can say which one on the API with `x-tenant-id`, but the account page has no
+  picker.
 - **An end-to-end run against Stripe itself.** The suite drives the real
   routes with the in-memory gateway, so it proves this application's guarantees
   and none of Stripe's. Pointing it at a test-mode account and a real test
