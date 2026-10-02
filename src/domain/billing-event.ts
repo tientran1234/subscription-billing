@@ -33,6 +33,12 @@ export interface BillingEvent {
    */
   customerRef?: string;
   planKey?: string;
+  /**
+   * Seats the provider billed for. Reaches us the way `planKey` does — on the
+   * invoice that took the money — so a seat change is evidence rather than an
+   * intention.
+   */
+  seats?: number;
   currentPeriodEnd?: Date;
 }
 
@@ -46,6 +52,11 @@ export interface CreateCheckoutInput {
    * the subscription is billed from the start.
    */
   trialDays?: number;
+  /**
+   * Seats to bill — the `quantity` on the provider's price. Omitted means one,
+   * which is the common checkout: one person buying for themselves.
+   */
+  seats?: number;
   customerEmail?: string;
   successUrl: string;
   cancelUrl: string;
@@ -72,6 +83,8 @@ export interface PreviewPlanChangeInput {
   providerRef: string;
   /** Provider-side price id of the plan being moved to. */
   priceRef: string;
+  /** Seats to be billed after the change. Omitted means one. */
+  seats?: number;
 }
 
 export interface PlanChangePreview {

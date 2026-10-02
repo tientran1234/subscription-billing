@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PLANS, canUse, entitlementsFor, remaining, trialDaysFor } from "@/domain/entitlements";
+import { MIN_SEATS } from "@/domain/seats";
 
 describe("entitlements", () => {
   it("gives a paying active tenant their plan", () => {
@@ -34,6 +35,22 @@ describe("entitlements", () => {
     // judging a product nobody is selling them.
     expect(entitlementsFor("scale", "TRIALING")).toEqual(entitlementsFor("scale", "ACTIVE"));
     expect(canUse(entitlementsFor("scale", "TRIALING"), "sso")).toBe(true);
+  });
+
+  it("reports the seats that were paid for", () => {
+    expect(entitlementsFor("pro", "ACTIVE", 7).seats).toBe(7);
+    expect(entitlementsFor("pro", "TRIALING", 7).seats).toBe(7);
+  });
+
+  it("drops a cancelled tenant back to one seat along with the plan", () => {
+    // Seats are derived for the same reason the plan is: a count that outlives
+    // the subscription is paid access nobody is paying for.
+    expect(entitlementsFor("pro", "CANCELED", 7).seats).toBe(MIN_SEATS);
+  });
+
+  it("never reports fewer than one seat, whatever it is handed", () => {
+    expect(entitlementsFor("pro", "ACTIVE", 0).seats).toBe(MIN_SEATS);
+    expect(entitlementsFor("free", "NONE").seats).toBe(MIN_SEATS);
   });
 
   it("never reports negative quota left", () => {

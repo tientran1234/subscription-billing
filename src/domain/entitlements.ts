@@ -7,6 +7,8 @@
  * cancelled customers keep paid access.
  */
 
+import { MIN_SEATS } from "./seats";
+
 export const FEATURES = ["assistant", "export", "api", "sso"] as const;
 export type Feature = (typeof FEATURES)[number];
 
@@ -52,6 +54,12 @@ export function trialDaysFor(planKey: string): number {
 
 export interface Entitlements {
   planKey: PlanKey;
+  /**
+   * Seats paid for: how many people may hold one. Features and quotas are the
+   * workspace's rather than each seat's, so buying a seat buys a person access
+   * and not another month's worth of messages.
+   */
+  seats: number;
   features: readonly Feature[];
   quotas: Readonly<Record<QuotaKey, number>>;
 }
@@ -66,11 +74,23 @@ export interface Entitlements {
  */
 const STATUSES_WITH_PAID_ACCESS = new Set(["ACTIVE", "TRIALING", "PAST_DUE"]);
 
-export function entitlementsFor(planKey: string, status: string): Entitlements {
-  const effective: PlanKey =
-    isPlanKey(planKey) && STATUSES_WITH_PAID_ACCESS.has(status) ? planKey : "free";
+export function entitlementsFor(
+  planKey: string,
+  status: string,
+  seats = MIN_SEATS,
+): Entitlements {
+  const paid = isPlanKey(planKey) && STATUSES_WITH_PAID_ACCESS.has(status);
+  const effective: PlanKey = paid ? planKey : "free";
   const plan = PLANS[effective];
-  return { planKey: effective, features: plan.features, quotas: plan.quotas };
+  return {
+    planKey: effective,
+    // Seats are derived exactly like the plan is, and for the same reason: a
+    // count left standing after the subscription ended is paid access nobody
+    // is paying for. What survives is the one seat the owner holds.
+    seats: paid ? Math.max(MIN_SEATS, seats) : MIN_SEATS,
+    features: plan.features,
+    quotas: plan.quotas,
+  };
 }
 
 export function canUse(entitlements: Entitlements, feature: Feature): boolean {
