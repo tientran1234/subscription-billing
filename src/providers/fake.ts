@@ -26,8 +26,8 @@ export class FakeProvider implements IBillingProvider {
   /**
    * Every checkout opened, preview taken and plan change made through this
    * provider. Nothing in the app reads them; they are how a test sees which
-   * subscription was repriced, what trial a checkout asked for, and that a
-   * refused change never reached the provider at all.
+   * subscription was repriced, what trial and how many seats a checkout asked
+   * for, and that a refused change never reached the provider at all.
    */
   readonly checkouts: CreateCheckoutInput[] = [];
   readonly previews: PreviewPlanChangeInput[] = [];

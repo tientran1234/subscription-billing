@@ -15,8 +15,11 @@ import {
   checkPlanChange,
   isQuoteUsable,
   planKeyForPaidInvoice,
+  seatsForPaidInvoice,
+  type CurrentPlan,
   type PlanChangeRefusal,
 } from "@/domain/plan-change";
+import { MIN_SEATS, checkSeats, type SeatRefusal } from "@/domain/seats";
 import { portalCustomerFor } from "@/domain/portal";
 import { predecessorsOf, statusForEvent } from "@/domain/subscription";
 import { entitlementsFor, trialDaysFor, type Entitlements } from "@/domain/entitlements";
@@ -32,7 +35,7 @@ export type ApplyOutcome =
   | "transitioned"
   /** Already ACTIVE and this was a renewal — period extended, status untouched. */
   | "renewed"
-  /** Already ACTIVE and the paid invoice named another plan — plan moved, status untouched. */
+  /** Already ACTIVE and the paid invoice named another plan or seat count — repriced, status untouched. */
   | "repriced"
   /** The transition is not legal from the current status: out-of-order or lost race. */
   | "no_transition";
@@ -41,14 +44,40 @@ export interface StartCheckoutInput {
   tenantId: string;
   planKey: string;
   priceRef: string;
+  /** Seats to buy. Omitted means the one the person checking out occupies. */
+  seats?: number;
   customerEmail?: string;
   appUrl: string;
+}
+
+export type StartCheckoutResult =
+  | { ok: true; subscriptionId: string; checkoutUrl: string }
+  /** The seat count was refused, so no row was written and no session opened. */
+  | { ok: false; reason: SeatRefusal };
+
+/**
+ * Seats occupied right now.
+ *
+ * A membership is the only thing that takes one: a person who can sign in and
+ * act for this workspace. Nothing yet adds a second member — see the README —
+ * so for most tenants this is one, but the floor is read rather than assumed,
+ * because the day invites arrive is not the day to remember seats had a rule.
+ */
+async function seatsInUse(tenantId: string): Promise<number> {
+  return db.membership.count({ where: { tenantId } });
 }
 
 export async function startCheckout(
   provider: IBillingProvider,
   input: StartCheckoutInput,
-): Promise<{ subscriptionId: string; checkoutUrl: string }> {
+): Promise<StartCheckoutResult> {
+  const seats = input.seats ?? MIN_SEATS;
+
+  // Checked before the row exists, not after: a subscription for fewer seats
+  // than the workspace already fills would be sold access it cannot hand out.
+  const refusal = checkSeats(seats, await seatsInUse(input.tenantId));
+  if (refusal) return { ok: false, reason: refusal };
+
   // Persist PENDING *before* calling the provider. Stripe can deliver
   // checkout.session.completed while we are still awaiting the create() call;
   // if the row does not exist yet, that webhook has nothing to attach to.
@@ -58,6 +87,7 @@ export async function startCheckout(
       planKey: input.planKey,
       status: "PENDING",
       provider: provider.name,
+      seats,
     },
   });
 
@@ -68,13 +98,14 @@ export async function startCheckout(
     // Read off the plan here rather than accepted from the route: a trial is
     // something we sell, so no caller gets to ask for a longer one.
     trialDays: trialDaysFor(input.planKey),
+    seats,
     customerEmail: input.customerEmail,
     successUrl: `${input.appUrl}/billing/success`,
     cancelUrl: `${input.appUrl}/billing/cancel`,
   });
 
   await db.subscription.update({ where: { id: subscription.id }, data: { checkoutRef } });
-  return { subscriptionId: subscription.id, checkoutUrl };
+  return { ok: true, subscriptionId: subscription.id, checkoutUrl };
 }
 
 export type PortalResult =
@@ -123,6 +154,8 @@ export interface PlanChangeInput {
   planKey: string;
   /** Provider-side price id for that plan. */
   priceRef: string;
+  /** Seats to be billed after the change. Omitted keeps the count as it is. */
+  seats?: number;
 }
 
 export type PreviewResult =
@@ -138,18 +171,26 @@ export type ConfirmResult = { ok: true } | { ok: false; reason: PlanChangeFailur
  */
 async function repriceable(
   tenantId: string,
-  target: string,
-): Promise<{ ok: true; providerRef: string } | { ok: false; reason: PlanChangeFailure }> {
+  target: { planKey: string; seats?: number },
+): Promise<
+  { ok: true; providerRef: string; seats: number } | { ok: false; reason: PlanChangeFailure }
+> {
   const subscription = await db.subscription.findFirst({
     where: { tenantId },
     orderBy: { createdAt: "desc" },
   });
   if (!subscription?.providerRef) return { ok: false, reason: "no_subscription" };
 
-  const check = checkPlanChange(subscription, target);
+  const check = checkPlanChange(
+    { ...subscription, seatsInUse: await seatsInUse(tenantId) },
+    target,
+  );
   if (!check.ok) return { ok: false, reason: check.reason };
 
-  return { ok: true, providerRef: subscription.providerRef };
+  // The seat count the rule settled on, not the one asked for: a plan move that
+  // named no seats keeps the ones already paid for, and quoting anything else
+  // would bill for a change the customer did not request.
+  return { ok: true, providerRef: subscription.providerRef, seats: check.seats };
 }
 
 /** What the change would cost. Charges nothing and changes nothing. */
@@ -157,12 +198,13 @@ export async function previewPlanChange(
   provider: IBillingProvider,
   input: PlanChangeInput,
 ): Promise<PreviewResult> {
-  const found = await repriceable(input.tenantId, input.planKey);
+  const found = await repriceable(input.tenantId, input);
   if (!found.ok) return found;
 
   const preview = await provider.previewPlanChange({
     providerRef: found.providerRef,
     priceRef: input.priceRef,
+    seats: found.seats,
   });
   return { ok: true, preview };
 }
@@ -183,13 +225,14 @@ export async function confirmPlanChange(
 ): Promise<ConfirmResult> {
   if (!isQuoteUsable(input.prorationDate)) return { ok: false, reason: "stale_quote" };
 
-  const found = await repriceable(input.tenantId, input.planKey);
+  const found = await repriceable(input.tenantId, input);
   if (!found.ok) return found;
 
   await provider.changePlan({
     providerRef: found.providerRef,
     priceRef: input.priceRef,
     planKey: input.planKey,
+    seats: found.seats,
     prorationDate: input.prorationDate,
   });
   return { ok: true };
@@ -239,9 +282,11 @@ export async function applyEvent(
   const subscription = await subscriptionForEvent(event);
   if (!subscription) return "not_found";
 
-  // 2. A paid invoice may also move the plan — that is how a mid-cycle change
-  //    reaches us, since nothing writes planKey when the change is requested.
+  // 2. A paid invoice may also move the plan and the seat count — that is how a
+  //    mid-cycle change reaches us, since nothing writes either when the change
+  //    is requested.
   const nextPlanKey = target === "ACTIVE" ? planKeyForPaidInvoice(subscription, event) : null;
+  const nextSeats = target === "ACTIVE" ? seatsForPaidInvoice(subscription, event) : null;
 
   // 3. Transition conditionally. `status IN (legal predecessors)` is checked by
   //    Postgres, not by Node, so two deliveries racing each other produce one
@@ -254,19 +299,20 @@ export async function applyEvent(
       ...(event.customerRef ? { customerRef: event.customerRef } : {}),
       ...(event.currentPeriodEnd ? { currentPeriodEnd: event.currentPeriodEnd } : {}),
       ...(nextPlanKey ? { planKey: nextPlanKey } : {}),
+      ...(nextSeats ? { seats: nextSeats } : {}),
     },
   });
   if (count === 1) return "transitioned";
 
-  // 4. A renewal or a plan change on an already-ACTIVE subscription is not a
-  //    status change, but it does move the period end and the plan. Without
+  // 4. A renewal or a reprice on an already-ACTIVE subscription is not a status
+  //    change, but it does move the period end, the plan and the seats. Without
   //    this, ACTIVE→ACTIVE would be dropped: the subscription would look
-  //    expired at the old date, and an upgrade the customer has paid for would
-  //    never take effect.
+  //    expired at the old date, and an upgrade or a seat the customer has paid
+  //    for would never take effect.
   if (
     target === "ACTIVE" &&
     subscription.status === "ACTIVE" &&
-    (event.currentPeriodEnd || nextPlanKey)
+    (event.currentPeriodEnd || nextPlanKey || nextSeats)
   ) {
     await db.subscription.update({
       where: { id: subscription.id },
@@ -274,9 +320,10 @@ export async function applyEvent(
         ...(event.currentPeriodEnd ? { currentPeriodEnd: event.currentPeriodEnd } : {}),
         ...(event.customerRef ? { customerRef: event.customerRef } : {}),
         ...(nextPlanKey ? { planKey: nextPlanKey } : {}),
+        ...(nextSeats ? { seats: nextSeats } : {}),
       },
     });
-    return nextPlanKey ? "repriced" : "renewed";
+    return nextPlanKey || nextSeats ? "repriced" : "renewed";
   }
 
   return "no_transition";
@@ -289,7 +336,7 @@ export async function entitlementsForTenant(tenantId: string): Promise<Entitleme
     orderBy: { createdAt: "desc" },
   });
   if (!subscription) return entitlementsFor("free", "NONE");
-  return entitlementsFor(subscription.planKey, subscription.status);
+  return entitlementsFor(subscription.planKey, subscription.status, subscription.seats);
 }
 
 /**
@@ -301,14 +348,21 @@ export async function entitlementsForTenant(tenantId: string): Promise<Entitleme
  * from it: PAST_DUE keeps paid access, so the derived plan reads "pro" while
  * the subscription behind it is one no proration may be charged against. A
  * picker fed entitlements would offer a change the route then refuses.
+ *
+ * Seats in use come along for the same reason: the picker has to be able to
+ * draw the floor the route enforces, rather than let a customer ask for a
+ * reduction that is refused once they have confirmed it.
  */
-export async function currentPlanFor(
-  tenantId: string,
-): Promise<{ planKey: string; status: string } | null> {
+export async function currentPlanFor(tenantId: string): Promise<CurrentPlan | null> {
   const subscription = await db.subscription.findFirst({
     where: { tenantId },
     orderBy: { createdAt: "desc" },
   });
   if (!subscription) return null;
-  return { planKey: subscription.planKey, status: subscription.status };
+  return {
+    planKey: subscription.planKey,
+    status: subscription.status,
+    seats: subscription.seats,
+    seatsInUse: await seatsInUse(tenantId),
+  };
 }

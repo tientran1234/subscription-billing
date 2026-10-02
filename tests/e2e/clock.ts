@@ -89,12 +89,16 @@ export class BillingClock {
     });
   }
 
-  /** A paid invoice: the money for one period, and the plan it was taken for. */
-  paidInvoice(input: { providerRef: string; planKey?: string }): Delivery {
+  /**
+   * A paid invoice: the money for one period, and the plan and seat count it
+   * was taken for.
+   */
+  paidInvoice(input: { providerRef: string; planKey?: string; seats?: number }): Delivery {
     return this.sign({
       type: "subscription_activated",
       providerRef: input.providerRef,
       planKey: input.planKey,
+      seats: input.seats,
       currentPeriodEnd: this.periodEnd(),
     });
   }

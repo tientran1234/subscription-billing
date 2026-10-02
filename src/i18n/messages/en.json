@@ -20,8 +20,12 @@
   "account": {
     "title": "Account",
     "subtitle": "What this workspace may do right now, derived from its subscription rather than stored on it.",
+    "seats": "{count, plural, =1 {# seat} other {# seats}}",
     "changeTitle": "Change plan",
     "changeTo": "Switch to {plan}",
+    "changeSeats": "Seats",
+    "changeSeatsOnly": "Update seats",
+    "changeSeatsFloor": "{count, plural, =1 {# seat is} other {# seats are}} in use. Remove the member before buying fewer.",
     "changeQuoting": "Pricing…",
     "changeDueNow": "Due now",
     "changeDueNothing": "Nothing — the unused time comes off your next invoice",

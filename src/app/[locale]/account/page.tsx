@@ -1,9 +1,9 @@
 import { getTranslations } from "next-intl/server";
 import { headers } from "next/headers";
 import Link from "next/link";
-import { PLANS } from "@/domain/entitlements";
+import { PLANS, type PlanKey } from "@/domain/entitlements";
 import { resolveTenant } from "@/domain/membership";
-import { QUOTE_TTL_SECONDS, planChangeOptions } from "@/domain/plan-change";
+import { QUOTE_TTL_SECONDS } from "@/domain/plan-change";
 import { auth } from "@/lib/auth";
 import { currentPlanFor, entitlementsForTenant } from "@/server/billing.service";
 import { principalFrom, TENANT_HEADER } from "@/server/with-session";
@@ -47,17 +47,18 @@ export default async function AccountPage({
 
   // Read from the subscription rather than from the entitlements above: the
   // two disagree on PAST_DUE, and it is the subscription the proration would
-  // be charged against. No subscription means no options at all — the picker
-  // draws nothing, and the pricing page is where that customer starts.
+  // be charged against. No subscription means the picker draws nothing, and
+  // the pricing page is where that customer starts.
+  //
+  // Which plans get a button is decided in the picker, not here: the answer
+  // moves as the customer changes the seat count, and a set filtered on the
+  // server would be the set for the count they started with.
   const current = await currentPlanFor(resolved.tenantId);
-  const options = current ? planChangeOptions(current) : [];
-  const offers = options
-    .filter((option) => option.refusal === null)
-    .map((option) => ({
-      planKey: option.planKey,
-      name: PLANS[option.planKey].name,
-      choose: t("changeTo", { plan: PLANS[option.planKey].name }),
-    }));
+  const plans = (Object.keys(PLANS) as PlanKey[]).map((planKey) => ({
+    planKey,
+    name: PLANS[planKey].name,
+    choose: t("changeTo", { plan: PLANS[planKey].name }),
+  }));
 
   return (
     <main>
@@ -72,15 +73,19 @@ export default async function AccountPage({
           {entitlements.features.map((f) => (
             <li key={f}>{f}</li>
           ))}
+          <li>{t("seats", { count: entitlements.seats })}</li>
         </ul>
       </section>
 
       <PlanPicker
-        offers={offers}
-        inactive={options.some((option) => option.refusal === "not_billable")}
+        current={current}
+        plans={plans}
         locale={locale}
         labels={{
           heading: t("changeTitle"),
+          seats: t("changeSeats"),
+          seatsFloor: t("changeSeatsFloor", { count: current?.seatsInUse ?? 1 }),
+          changeSeats: t("changeSeatsOnly"),
           quoting: t("changeQuoting"),
           dueNow: t("changeDueNow"),
           dueNothing: t("changeDueNothing"),

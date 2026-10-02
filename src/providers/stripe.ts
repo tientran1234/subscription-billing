@@ -58,6 +58,13 @@ const refOf = (value: unknown): string | undefined => {
 const secondsToDate = (seconds: unknown): Date | undefined =>
   typeof seconds === "number" ? new Date(seconds * 1000) : undefined;
 
+/** Metadata is strings. One that is absent or not a number is simply no count. */
+const seatsFrom = (value: string | undefined): number | undefined => {
+  if (value === undefined) return undefined;
+  const seats = Number(value);
+  return Number.isFinite(seats) ? seats : undefined;
+};
+
 /**
  * The item a plan change reprices. A subscription started by `createCheckout`
  * has exactly one line, so there is nothing to choose between; a subscription
@@ -86,10 +93,11 @@ export class StripeProvider implements IBillingProvider {
 
   async createCheckout(input: CreateCheckoutInput): Promise<CreateCheckoutResult> {
     const trialDays = input.trialDays ?? 0;
+    const seats = input.seats ?? 1;
 
     const session = await this.stripe.checkout.sessions.create({
       mode: "subscription",
-      line_items: [{ price: input.priceRef, quantity: 1 }],
+      line_items: [{ price: input.priceRef, quantity: seats }],
       // Echoed back on the webhook, so we can find our row without a lookup.
       client_reference_id: input.subscriptionId,
       // `trialDays` rides along because the completed-session event has to be
@@ -102,7 +110,15 @@ export class StripeProvider implements IBillingProvider {
         ...(trialDays > 0 ? { trialDays: String(trialDays) } : {}),
       },
       subscription_data: {
-        metadata: { subscriptionId: input.subscriptionId, planKey: input.planKey },
+        // `seats` rides on the subscription so the invoices it raises snapshot
+        // it, which is how a seat count reaches applyEvent. The quantity is on
+        // the line item too, but a proration invoice has several lines and no
+        // promised order, so reading one back off them would be a guess.
+        metadata: {
+          subscriptionId: input.subscriptionId,
+          planKey: input.planKey,
+          seats: String(seats),
+        },
         ...(trialDays > 0 ? { trial_period_days: trialDays } : {}),
       },
       customer_email: input.customerEmail,
@@ -133,7 +149,7 @@ export class StripeProvider implements IBillingProvider {
       customer: customerRef,
       subscription: input.providerRef,
       subscription_details: {
-        items: [{ id: itemId, price: input.priceRef, quantity: 1 }],
+        items: [{ id: itemId, price: input.priceRef, quantity: input.seats ?? 1 }],
         proration_behavior: "always_invoice",
         proration_date: prorationDate,
       },
@@ -150,16 +166,19 @@ export class StripeProvider implements IBillingProvider {
   async changePlan(input: ChangePlanInput): Promise<void> {
     const { itemId } = await repricedItem(this.stripe, input.providerRef);
 
+    const seats = input.seats ?? 1;
+
     await this.stripe.subscriptions.update(input.providerRef, {
-      items: [{ id: itemId, price: input.priceRef, quantity: 1 }],
+      items: [{ id: itemId, price: input.priceRef, quantity: seats }],
       // Invoice the proration now instead of parking it on the next renewal:
       // the paid invoice is what tells us the plan moved, and a tenant should
       // not wait a month for the plan they just bought.
       proration_behavior: "always_invoice",
       proration_date: Math.floor(input.prorationDate.getTime() / 1000),
       // Metadata is merged, and the invoice snapshots it — which is how the
-      // new plan reaches applyEvent without anything writing it locally.
-      metadata: { planKey: input.planKey },
+      // new plan and seat count reach applyEvent without anything writing them
+      // locally.
+      metadata: { planKey: input.planKey, seats: String(seats) },
     });
   }
 
@@ -207,10 +226,11 @@ export function normalize(event: Stripe.Event): BillingEvent {
         type: "subscription_activated",
         providerRef: refOf(i.subscription),
         customerRef: refOf(i.customer),
-        // The plan in force when this invoice was finalized. On a plan change
-        // that is the new one, and the paid invoice is the evidence the money
-        // for it was taken.
+        // The plan and seat count in force when this invoice was finalized. On
+        // a change those are the new ones, and the paid invoice is the evidence
+        // the money for them was taken.
         planKey: i.subscription_details?.metadata?.planKey,
+        seats: seatsFrom(i.subscription_details?.metadata?.seats),
         currentPeriodEnd: secondsToDate(i.lines?.data?.[0]?.period?.end),
       };
     }

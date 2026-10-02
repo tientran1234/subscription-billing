@@ -20,8 +20,12 @@
   "account": {
     "title": "Tài khoản",
     "subtitle": "Quyền sử dụng hiện tại của workspace này, được suy ra từ gói đăng ký chứ không lưu sẵn.",
+    "seats": "{count} chỗ",
     "changeTitle": "Đổi gói",
     "changeTo": "Chuyển sang gói {plan}",
+    "changeSeats": "Số chỗ",
+    "changeSeatsOnly": "Đổi số chỗ",
+    "changeSeatsFloor": "Đang dùng {count} chỗ. Xoá thành viên trước khi mua ít hơn.",
     "changeQuoting": "Đang tính giá…",
     "changeDueNow": "Phải trả ngay",
     "changeDueNothing": "Không — phần thời gian chưa dùng sẽ trừ vào hoá đơn kế tiếp",

@@ -104,6 +104,32 @@ describe("fake provider", () => {
     expect(result.checkoutRef).toBeTruthy();
   });
 
+  it("records the seats a checkout asked for, and bills the change at the same count", async () => {
+    const provider = new FakeProvider();
+    await provider.createCheckout({
+      subscriptionId: "sub_team",
+      planKey: "pro",
+      priceRef: "price_x",
+      seats: 4,
+      successUrl: "https://x/ok",
+      cancelUrl: "https://x/no",
+    });
+    await provider.previewPlanChange({ providerRef: "sub_team", priceRef: "price_x", seats: 6 });
+    await provider.changePlan({
+      providerRef: "sub_team",
+      priceRef: "price_x",
+      planKey: "pro",
+      seats: 6,
+      prorationDate: new Date(),
+    });
+
+    expect(provider.checkouts).toMatchObject([{ seats: 4 }]);
+    // The quote and the change have to name the same count, or the customer is
+    // billed for a number of seats they were never shown a price for.
+    expect(provider.previews).toMatchObject([{ seats: 6 }]);
+    expect(provider.planChanges).toMatchObject([{ seats: 6 }]);
+  });
+
   it("records the trial a checkout asked for", async () => {
     const provider = new FakeProvider();
     await provider.createCheckout({
@@ -221,6 +247,39 @@ describe("stripe normalisation", () => {
       }),
     );
     expect(event.planKey).toBe("scale");
+  });
+
+  // Seats reach us the way the plan does, off the metadata the invoice
+  // snapshots — and not off the line items, because a proration invoice has
+  // several lines in no promised order, so the quantity on the first of them
+  // may be the one being credited rather than the one being charged.
+  it("carries the seat count a paid invoice was billed for", () => {
+    const event = normalize(
+      stripeEvent("invoice.paid", {
+        subscription: "sub_10",
+        subscription_details: { metadata: { planKey: "scale", seats: "6" } },
+      }),
+    );
+    expect(event.seats).toBe(6);
+  });
+
+  it("reports no seat count rather than a nonsense one when the metadata has none", () => {
+    expect(
+      normalize(
+        stripeEvent("invoice.paid", {
+          subscription: "sub_11",
+          subscription_details: { metadata: { planKey: "pro" } },
+        }),
+      ).seats,
+    ).toBeUndefined();
+    expect(
+      normalize(
+        stripeEvent("invoice.paid", {
+          subscription: "sub_12",
+          subscription_details: { metadata: { seats: "lots" } },
+        }),
+      ).seats,
+    ).toBeUndefined();
   });
 
   it("maps a failed invoice to payment_failed", () => {

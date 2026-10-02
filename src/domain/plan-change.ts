@@ -12,10 +12,12 @@
  * A plan change is not a status change. We ask the provider to move the price;
  * the new plan reaches us the way every other fact does — on a webhook, once
  * the proration invoice is paid. `planKeyForPaidInvoice` is the only place
- * `planKey` is allowed to move after checkout.
+ * `planKey` is allowed to move after checkout, and `seatsForPaidInvoice` the
+ * only place `seats` is.
  */
 
 import { PLANS, isPlanKey, type PlanKey } from "./entitlements";
+import { checkSeats, isSellableSeatCount, type SeatRefusal } from "./seats";
 
 export type PlanChangeRefusal =
   /** Not a plan we sell. */
@@ -24,11 +26,26 @@ export type PlanChangeRefusal =
   | "not_purchasable"
   /** Nothing is being billed right now, so there is nothing to prorate. */
   | "not_billable"
-  /** Already on it. */
-  | "same_plan";
+  /** Already on it, at that many seats. */
+  | "same_plan"
+  /** The seat count itself is refused — see src/domain/seats.ts. */
+  | SeatRefusal;
+
+/**
+ * What the tenant has now, and what a change would be measured against. Seats
+ * in use belong here rather than being passed alongside: the floor is a fact
+ * about the workspace at this instant, the same way its status is.
+ */
+export interface CurrentPlan {
+  planKey: string;
+  status: string;
+  seats: number;
+  /** Seats occupied right now — the floor a change may not go below. */
+  seatsInUse: number;
+}
 
 export type PlanChangeCheck =
-  | { ok: true; planKey: PlanKey }
+  | { ok: true; planKey: PlanKey; seats: number }
   | { ok: false; reason: PlanChangeRefusal };
 
 /**
@@ -37,16 +54,29 @@ export type PlanChangeCheck =
  * charging a proration on top of it is how customers end up owing two amounts
  * for one month; CANCELED and EXPIRED are over. A tenant in any of those
  * subscribes again rather than changing plan.
+ *
+ * `target.seats` omitted means the seat count stays where it is, so a plan move
+ * carries the seats across rather than quietly reselling one.
  */
 export function checkPlanChange(
-  current: { planKey: string; status: string },
-  target: string,
+  current: CurrentPlan,
+  target: { planKey: string; seats?: number },
 ): PlanChangeCheck {
-  if (!isPlanKey(target)) return { ok: false, reason: "unknown_plan" };
-  if (target === "free") return { ok: false, reason: "not_purchasable" };
+  const seats = target.seats ?? current.seats;
+  if (!isPlanKey(target.planKey)) return { ok: false, reason: "unknown_plan" };
+  if (target.planKey === "free") return { ok: false, reason: "not_purchasable" };
   if (current.status !== "ACTIVE") return { ok: false, reason: "not_billable" };
-  if (current.planKey === target) return { ok: false, reason: "same_plan" };
-  return { ok: true, planKey: target };
+
+  const seatRefusal = checkSeats(seats, current.seatsInUse);
+  if (seatRefusal) return { ok: false, reason: seatRefusal };
+
+  // Seats are part of what is bought, so moving them on the plan the tenant is
+  // already on is a real change: there is a proration to quote and an invoice
+  // to raise. Only both unchanged is nothing to do.
+  if (current.planKey === target.planKey && seats === current.seats) {
+    return { ok: false, reason: "same_plan" };
+  }
+  return { ok: true, planKey: target.planKey, seats };
 }
 
 export interface PlanChangeOption {
@@ -67,13 +97,17 @@ export interface PlanChangeOption {
  *
  * Plans come from `PLANS`, so adding one puts it in front of customers without
  * anybody remembering to edit a page.
+ *
+ * `seats` is what the customer has asked for, which is why it is a parameter
+ * rather than read off `current`: the answers move as they change the number,
+ * and the plan they are already on becomes offerable the moment it differs.
  */
-export function planChangeOptions(current: {
-  planKey: string;
-  status: string;
-}): PlanChangeOption[] {
+export function planChangeOptions(
+  current: CurrentPlan,
+  seats = current.seats,
+): PlanChangeOption[] {
   return (Object.keys(PLANS) as PlanKey[]).map((planKey) => {
-    const check = checkPlanChange(current, planKey);
+    const check = checkPlanChange(current, { planKey, seats });
     return {
       planKey,
       current: planKey === current.planKey,
@@ -101,17 +135,30 @@ export function isQuoteUsable(
 }
 
 /**
+ * Whether a paid invoice is evidence about the period we are in, or about one
+ * already behind us.
+ *
+ * Webhooks arrive out of order, so a renewal raised before an upgrade but
+ * delivered after it must not undo the change it predates. With no period end
+ * on either side there is nothing to order the two by, so the invoice is taken
+ * at its word.
+ */
+function isCurrentInvoice(
+  stored: { currentPeriodEnd: Date | null },
+  event: { currentPeriodEnd?: Date },
+): boolean {
+  if (!stored.currentPeriodEnd || !event.currentPeriodEnd) return true;
+  return event.currentPeriodEnd >= stored.currentPeriodEnd;
+}
+
+/**
  * The plan a paid invoice moves the subscription to, or `null` to leave it
  * alone.
  *
  * The invoice carries the plan that was in force when it was finalized, which
- * is what makes it evidence: the money for that plan has been taken. Two things
- * are refused anyway — a plan we cannot price, because entitlements would fall
- * back to Free and the tenant would lose the access they just paid for, and an
- * invoice older than the period we already know about, because webhooks arrive
- * out of order and a late renewal must not undo a newer upgrade. With no period
- * end on either side there is nothing to order the two by, so the invoice is
- * taken at its word.
+ * is what makes it evidence: the money for that plan has been taken. A plan we
+ * cannot price is refused anyway, because entitlements would fall back to Free
+ * and the tenant would lose the access they just paid for.
  */
 export function planKeyForPaidInvoice(
   stored: { planKey: string; currentPeriodEnd: Date | null },
@@ -119,12 +166,28 @@ export function planKeyForPaidInvoice(
 ): PlanKey | null {
   if (!event.planKey || !isPlanKey(event.planKey)) return null;
   if (event.planKey === stored.planKey) return null;
-  if (
-    stored.currentPeriodEnd &&
-    event.currentPeriodEnd &&
-    event.currentPeriodEnd < stored.currentPeriodEnd
-  ) {
-    return null;
-  }
+  if (!isCurrentInvoice(stored, event)) return null;
   return event.planKey;
+}
+
+/**
+ * The seat count a paid invoice moves the subscription to, or `null` to leave
+ * it alone.
+ *
+ * Seats arrive the way the plan does, and are evidence for the same reason: the
+ * quantity on the invoice is the quantity the money was taken for. The
+ * occupancy floor is deliberately not applied here — it guards what a customer
+ * may ask to buy, and by this point they have bought it; refusing the count
+ * would leave them paying for seats their workspace does not have. A count we
+ * cannot sell at all is refused, because a zero or a thousand on an invoice
+ * line is a reason to go and look rather than to write.
+ */
+export function seatsForPaidInvoice(
+  stored: { seats: number; currentPeriodEnd: Date | null },
+  event: { seats?: number; currentPeriodEnd?: Date },
+): number | null {
+  if (event.seats === undefined || !isSellableSeatCount(event.seats)) return null;
+  if (event.seats === stored.seats) return null;
+  if (!isCurrentInvoice(stored, event)) return null;
+  return event.seats;
 }

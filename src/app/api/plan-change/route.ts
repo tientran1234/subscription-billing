@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isPlanKey } from "@/domain/entitlements";
+import { MAX_SEATS, MIN_SEATS } from "@/domain/seats";
 import { billingProvider } from "@/providers";
 import {
   confirmPlanChange,
@@ -16,9 +17,12 @@ export const runtime = "nodejs";
 // `.strict()`, so a caller sending `tenantId` gets a 400 rather than a plan
 // change on someone else's subscription.
 const PlanKey = z.string().refine(isPlanKey, "unknown plan");
-const Preview = z.object({ planKey: PlanKey }).strict();
+// Seats are optional on both steps: a plan move that names none keeps the count
+// already paid for rather than reselling it at one.
+const Seats = z.number().int().min(MIN_SEATS).max(MAX_SEATS).optional();
+const Preview = z.object({ planKey: PlanKey, seats: Seats }).strict();
 const Confirm = z
-  .object({ planKey: PlanKey, prorationDate: z.string().datetime() })
+  .object({ planKey: PlanKey, seats: Seats, prorationDate: z.string().datetime() })
   .strict();
 const Body = z.union([Confirm, Preview]);
 
@@ -28,8 +32,13 @@ const REFUSALS: Record<PlanChangeFailure, { status: number; error: string }> = {
   not_purchasable: { status: 400, error: "that plan is not purchasable — cancel in the portal instead" },
   no_subscription: { status: 409, error: "no subscription to change yet" },
   not_billable: { status: 409, error: "only an active subscription can change plan" },
-  same_plan: { status: 409, error: "already on that plan" },
+  same_plan: { status: 409, error: "already on that plan, at that many seats" },
   stale_quote: { status: 409, error: "that price is out of date — preview again" },
+  invalid_seats: { status: 400, error: `seats must be a whole number, at most ${MAX_SEATS}` },
+  seats_in_use: {
+    status: 409,
+    error: "that is fewer seats than are in use — remove the members first",
+  },
 };
 
 const refuse = (reason: PlanChangeFailure) =>
@@ -44,14 +53,14 @@ export const POST = withSession(async (request, { tenantId }) => {
     );
   }
 
-  const { planKey } = parsed.data;
+  const { planKey, seats } = parsed.data;
   const priceRef = priceRefFor(planKey);
   if (!priceRef) return refuse("not_purchasable");
 
   const provider = billingProvider();
 
   if (!("prorationDate" in parsed.data)) {
-    const result = await previewPlanChange(provider, { tenantId, planKey, priceRef });
+    const result = await previewPlanChange(provider, { tenantId, planKey, priceRef, seats });
     if (!result.ok) return refuse(result.reason);
     return Response.json(result.preview);
   }
@@ -60,6 +69,7 @@ export const POST = withSession(async (request, { tenantId }) => {
     tenantId,
     planKey,
     priceRef,
+    seats,
     prorationDate: new Date(parsed.data.prorationDate),
   });
   if (!result.ok) return refuse(result.reason);

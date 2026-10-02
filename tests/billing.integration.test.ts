@@ -5,6 +5,7 @@
  *
  *   pnpm db:up && pnpm db:push && pnpm test
  */
+import { randomUUID } from "node:crypto";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
 import {
@@ -27,6 +28,19 @@ const event = (over: Partial<BillingEvent> & { providerEventId: string }): Billi
   type: "subscription_activated",
   ...over,
 });
+
+/**
+ * `n` people who can act for this tenant — the thing that occupies a seat.
+ * Memberships cascade with the tenant, so nothing has to tidy them up.
+ */
+const members = async (tenantId: string, n: number) => {
+  for (let i = 0; i < n; i++) {
+    const user = await db.user.create({
+      data: { email: `member-${randomUUID()}@example.test` },
+    });
+    await db.membership.create({ data: { userId: user.id, tenantId } });
+  }
+};
 
 describe.skipIf(!hasDatabase)("billing service", () => {
   let tenantId: string;
@@ -254,6 +268,104 @@ describe.skipIf(!hasDatabase)("billing service", () => {
     expect(provider.checkouts.map((c) => c.trialDays)).toEqual([PLANS.pro.trialDays, 0]);
   });
 
+  it("stores the seats a checkout bought and bills the gateway for them", async () => {
+    const provider = new FakeProvider();
+    const started = await startCheckout(provider, {
+      tenantId,
+      planKey: "pro",
+      priceRef: "price_pro",
+      seats: 4,
+      appUrl: "https://x",
+    });
+
+    expect(started).toMatchObject({ ok: true });
+    expect(provider.checkouts).toMatchObject([{ seats: 4 }]);
+    const row = await db.subscription.findFirstOrThrow({
+      where: { id: started.ok ? started.subscriptionId : undefined },
+    });
+    expect(row.seats).toBe(4);
+  });
+
+  it("buys one seat when the checkout does not ask for any", async () => {
+    const provider = new FakeProvider();
+    const started = await startCheckout(provider, {
+      tenantId,
+      planKey: "pro",
+      priceRef: "price_pro",
+      appUrl: "https://x",
+    });
+
+    expect(started).toMatchObject({ ok: true });
+    expect(provider.checkouts).toMatchObject([{ seats: 1 }]);
+  });
+
+  // The floor at checkout, not only on a change: a subscription for fewer seats
+  // than the workspace already fills is access it cannot hand out.
+  it("refuses a checkout for fewer seats than the workspace has members", async () => {
+    const provider = new FakeProvider();
+    await members(tenantId, 3);
+    const before = await db.subscription.count({ where: { tenantId } });
+
+    const started = await startCheckout(provider, {
+      tenantId,
+      planKey: "pro",
+      priceRef: "price_pro",
+      seats: 2,
+      appUrl: "https://x",
+    });
+
+    expect(started).toEqual({ ok: false, reason: "seats_in_use" });
+    // Nothing was written and nothing was opened: a refusal leaves no PENDING
+    // row behind for a webhook to attach itself to.
+    expect(provider.checkouts).toEqual([]);
+    expect(await db.subscription.count({ where: { tenantId } })).toBe(before);
+  });
+
+  it("moves the seat count when the invoice billed for it is paid", async () => {
+    await applyEvent("stripe", event({ providerEventId: "evt_1", checkoutRef: "cs_test_1", providerRef: "sub_1" }));
+    expect((await entitlementsForTenant(tenantId)).seats).toBe(1);
+
+    const outcome = await applyEvent(
+      "stripe",
+      event({ providerEventId: "evt_2", providerRef: "sub_1", seats: 5 }),
+    );
+
+    // The status did not move — only the quantity did, and the workspace has
+    // the seats it just paid the proration for.
+    expect(outcome).toBe("repriced");
+    const row = await db.subscription.findUniqueOrThrow({ where: { id: subscriptionId } });
+    expect(row.status).toBe("ACTIVE");
+    expect(row.seats).toBe(5);
+    expect((await entitlementsForTenant(tenantId)).seats).toBe(5);
+  });
+
+  it("does not let a late invoice sell the extra seats back", async () => {
+    await applyEvent(
+      "stripe",
+      event({
+        providerEventId: "evt_1",
+        checkoutRef: "cs_test_1",
+        providerRef: "sub_1",
+        currentPeriodEnd: new Date("2026-10-01T00:00:00.000Z"),
+      }),
+    );
+    await applyEvent("stripe", event({ providerEventId: "evt_2", providerRef: "sub_1", seats: 5 }));
+
+    // A renewal raised before the seat change, delivered after it.
+    const outcome = await applyEvent(
+      "stripe",
+      event({
+        providerEventId: "evt_3",
+        providerRef: "sub_1",
+        seats: 1,
+        currentPeriodEnd: new Date("2026-09-01T00:00:00.000Z"),
+      }),
+    );
+
+    expect(outcome).toBe("renewed");
+    expect((await entitlementsForTenant(tenantId)).seats).toBe(5);
+  });
+
   it("counts every metered call and blocks the one past the limit", async () => {
     const limit = 2;
     expect((await meter(tenantId, "aiMessages", limit)).allowed).toBe(true);
@@ -391,7 +503,9 @@ describe.skipIf(!hasDatabase)("plan change", () => {
     const result = await previewPlanChange(provider, { ...price, tenantId });
 
     expect(result.ok && result.preview.amountDueMinor).toBeGreaterThan(0);
-    expect(provider.previews).toEqual([{ providerRef: "sub_mine", priceRef: "price_scale" }]);
+    expect(provider.previews).toEqual([
+      { providerRef: "sub_mine", priceRef: "price_scale", seats: 1 },
+    ]);
   });
 
   it("has nothing to reprice before the provider has billed the tenant once", async () => {
@@ -411,7 +525,13 @@ describe.skipIf(!hasDatabase)("plan change", () => {
       ok: true,
     });
     expect(provider.planChanges).toEqual([
-      { providerRef: "sub_mine", priceRef: "price_scale", planKey: "scale", prorationDate },
+      {
+        providerRef: "sub_mine",
+        priceRef: "price_scale",
+        planKey: "scale",
+        seats: 1,
+        prorationDate,
+      },
     ]);
   });
 
@@ -466,5 +586,71 @@ describe.skipIf(!hasDatabase)("plan change", () => {
 
     await confirmPlanChange(provider, { ...price, tenantId, prorationDate: new Date() });
     expect(provider.planChanges.map((c) => c.providerRef)).toEqual(["sub_mine"]);
+  });
+
+  it("quotes a seat change on the plan the tenant is already on", async () => {
+    await subscribe({ seats: 2 });
+
+    const result = await previewPlanChange(provider, {
+      tenantId,
+      planKey: "pro",
+      priceRef: "price_pro",
+      seats: 5,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(provider.previews).toMatchObject([{ seats: 5 }]);
+  });
+
+  // The guard, through the service: the seats in use are counted from the
+  // workspace's own memberships, so a reduction that would strand somebody is
+  // refused before the gateway is asked for a price.
+  it("refuses dropping below the seats in use, and never asks the provider", async () => {
+    await subscribe({ seats: 5 });
+    await members(tenantId, 3);
+
+    expect(
+      await previewPlanChange(provider, {
+        tenantId,
+        planKey: "pro",
+        priceRef: "price_pro",
+        seats: 2,
+      }),
+    ).toEqual({ ok: false, reason: "seats_in_use" });
+    expect(
+      await confirmPlanChange(provider, {
+        tenantId,
+        planKey: "pro",
+        priceRef: "price_pro",
+        seats: 2,
+        prorationDate: new Date(),
+      }),
+    ).toEqual({ ok: false, reason: "seats_in_use" });
+
+    expect(provider.previews).toEqual([]);
+    expect(provider.planChanges).toEqual([]);
+  });
+
+  it("gives back a seat nobody is holding any more", async () => {
+    await subscribe({ seats: 5 });
+    await members(tenantId, 2);
+
+    const result = await previewPlanChange(provider, {
+      tenantId,
+      planKey: "pro",
+      priceRef: "price_pro",
+      seats: 2,
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  // A plan move that names no seats keeps the ones already paid for. Billing it
+  // at one would quietly take four seats off a workspace mid-upgrade.
+  it("carries the seats across a plan move that does not mention them", async () => {
+    await subscribe({ seats: 5 });
+    await members(tenantId, 5);
+
+    await confirmPlanChange(provider, { ...price, tenantId, prorationDate: new Date() });
+    expect(provider.planChanges).toMatchObject([{ planKey: "scale", seats: 5 }]);
   });
 });
