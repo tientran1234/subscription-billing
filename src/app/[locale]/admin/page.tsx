@@ -19,6 +19,7 @@ import { auth } from "@/lib/auth";
 import { listKeyUsage, listSubscriptions } from "@/server/transactions";
 import { currentPeriod } from "@/server/usage";
 import { principalFrom, TENANT_HEADER } from "@/server/with-session";
+import { ReplayForm } from "./replay-form";
 
 /** Server-rendered dates, so there is no locale to disagree with the client. */
 const day = (date: Date) => date.toISOString().slice(0, 10);
@@ -247,6 +248,19 @@ export default async function AdminPage({
           <Link href={href(locale, current, { keyAfter: keys.nextCursor })}>{t("next")}</Link>
         ) : null}
       </section>
+
+      <ReplayForm
+        labels={{
+          heading: t("replay"),
+          note: t("replayNote"),
+          eventId: t("replayEventId"),
+          action: t("replayAction"),
+          sending: t("replaySending"),
+          done: t("replayDone"),
+          refused: t("replayRefused"),
+          failed: t("replayFailed"),
+        }}
+      />
 
       <p className="sub" style={{ marginTop: 40 }}>
         {t("scopeNote")}
