@@ -158,6 +158,34 @@ already-active subscription all mail nobody. The past-due mail links to the
 account page rather than to a portal link — the provider's are single-use and
 expire in minutes, so one minted at send time would be dead on arrival.
 
+**A replay is the same delivery, asked for a second time.**
+An endpoint that was unreachable for an hour leaves a subscription behind the
+money that paid for it, and Stripe's retries do not come back once they have
+run out. `/api/replay` takes a provider event id, re-fetches that event from the
+gateway and hands it to the same `applyEvent` and the same `notifyDunning` the
+webhook route calls, in the same order, so a replay inherits the guarantees
+instead of restating them: the id is claimed in `WebhookEvent`, the transition
+is still conditional in Postgres, and a replayed failed renewal writes to a
+customer who was never told while one that did arrive writes to nobody. The
+event is read off the gateway and never taken from the request — a payload
+posted by hand carries no signature, and accepting one would make this a second,
+unsigned writer of everything `applyEvent` decides. The dangerous half is not
+idempotency but ownership: an event id names something at Stripe rather than
+anything here, so the event is tied back to a subscription first and that
+subscription has to be the caller's own, or any signed-in member could type
+another workspace's id and move its subscription. The three ways that check can
+fail — no such event, no subscription, another workspace — come back as one 404,
+because distinguishing them would answer which event ids are real in somebody
+else's ledger. `EventReplay` keeps them apart on the inside, with who asked and
+what came of it. It is keyed by its own id rather than the event's, since the
+same event may be replayed more than once and the attempts after the first are
+the ones an audit is read for, and the row is written before the work with its
+outcome filled in after: the audit is not a lock — the event id already is one —
+so claiming early costs nothing and an attempt that died halfway still names
+whoever made it. The in-memory gateway remembers what it delivered only for the
+life of one adapter, and the app builds one per request, so unlike the claims
+below this one is pinned against the service rather than through a browser.
+
 **Reading a ledger uses a cursor, not an offset.**
 The transactions page lists subscription attempts and per-key usage newest
 first. `LIMIT n OFFSET n` counts from the start of the result on every request,
@@ -218,6 +246,7 @@ src/
     seats.ts           how many seats we sell, and the floor the ones in use set
     membership.ts      which tenant a signed-in caller may act for
     dunning.ts         which status a customer is worth writing to about
+    replay.ts          who may replay a provider event, and whose it has to be
     transactions.ts    cursor ordering and the filters the ledger may be read by
   providers/
     index.ts       which adapter the routes get — Stripe unless asked otherwise
@@ -228,6 +257,7 @@ src/
     billing.service.ts  the only place a subscription status changes
     usage.ts            metered quota
     dunning.ts          claim the event id, render, send — at most once
+    replay.ts           re-fetch one event, re-apply it, record who asked
     mailer.ts           the SMTP seam, so tests can read what was composed
     with-session.ts     session → tenant, for human callers
     transactions.ts     the two paginated reads behind the transactions page
@@ -239,8 +269,9 @@ src/
     api/assistant        a paid feature: api key → scope → entitlement → quota
     api/portal           a link into Stripe's billing portal, for the caller's tenant
     api/plan-change      quote a proration, then change plan at the quoted price
+    api/replay           re-apply one provider event by id, for the caller's tenant
     [locale]/            pricing, account and transactions pages, en + vi
-tests/               132 unit + 61 integration against real Postgres
+tests/               138 unit + 69 integration against real Postgres
   e2e/               Playwright: checkout, replay, the cancel drop, the plan change
 ```
 
@@ -263,7 +294,8 @@ already seeded with it. `/account` then shows what that tenant may do, the
 plans it can move to, the seats it is paying for, and the link into Stripe's
 portal; the portal needs to be enabled once, in the Stripe dashboard under
 Settings → Billing → Customer portal. `/admin` lists that tenant's subscription
-attempts and what each API key spent, a page at a time.
+attempts and what each API key spent, a page at a time, and is where an event
+the endpoint missed is replayed by id.
 
 ```bash
 pnpm test        # unit tests run anywhere; integration tests need DATABASE_URL

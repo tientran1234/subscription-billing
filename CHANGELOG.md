@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-03
+
+- Webhook replay: an admin action that re-fetches a Stripe event by id and re-applies it through the same idempotent path, with who replayed what written to an audit table — a delivery that never arrived had no way back in short of the Stripe dashboard, and re-applying one by hand is only safe because the event is re-read from the gateway, tied to a subscription in the caller's own workspace, and claimed by the same primary key a live delivery is.
+
 ## 2026-10-02
 
 - Seats: `quantity` on checkout and subscription, seat count in entitlements, proration preview on seat change, and a guard that refuses to drop seats below the seats in use — the gateway will happily reprice a workspace down to fewer seats than it has people, and nothing in the credit note says whose access paid for the reduction.
