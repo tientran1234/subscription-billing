@@ -25,7 +25,8 @@ function contract(name: string, make: () => IBillingProvider) {
     //
     // `changePlan` is on the list because it is not one: it moves a price, and
     // the plan it moves to reaches us on the invoice that pays for it, like
-    // every other fact.
+    // every other fact. `fetchEvent` only reads: it hands business logic an
+    // event the provider already delivered, which is what a replay re-applies.
     it("exposes no way to change a subscription's status", () => {
       const methods = Object.getOwnPropertyNames(Object.getPrototypeOf(make()))
         .filter((m) => m !== "constructor" && !EXTRAS[name]?.includes(m))
@@ -34,6 +35,7 @@ function contract(name: string, make: () => IBillingProvider) {
         "changePlan",
         "createCheckout",
         "createPortalSession",
+        "fetchEvent",
         "previewPlanChange",
         "verifyWebhook",
       ]);
@@ -57,6 +59,26 @@ describe("fake provider", () => {
     });
     const event = await provider.verifyWebhook(body, provider.sign(body));
     expect(event).toMatchObject({ providerEventId: "evt_1", type: "subscription_activated" });
+  });
+
+  it("hands back an event it delivered, and nothing for an id it never sent", async () => {
+    const provider = new FakeProvider();
+    const body = JSON.stringify({
+      providerEventId: "evt_replay",
+      type: "payment_failed",
+      providerRef: "sub_1",
+    });
+    await provider.verifyWebhook(body, provider.sign(body));
+
+    // The same event, so a replay cannot apply something the delivery did not.
+    await expect(provider.fetchEvent("evt_replay")).resolves.toMatchObject({
+      providerEventId: "evt_replay",
+      type: "payment_failed",
+      providerRef: "sub_1",
+    });
+    // Null rather than a throw: an id the gateway has nothing under is how a
+    // mistyped replay arrives, and the rule in domain/replay.ts refuses it.
+    await expect(provider.fetchEvent("evt_never_sent")).resolves.toBeNull();
   });
 
   it("returns a portal url for the customer it was asked about", async () => {

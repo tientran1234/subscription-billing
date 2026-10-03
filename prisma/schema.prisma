@@ -8,15 +8,16 @@ datasource db {
 }
 
 model Tenant {
-  id            String         @id @default(cuid())
-  email         String         @unique
+  id            String          @id @default(cuid())
+  email         String          @unique
   name          String
   subscriptions Subscription[]
   usage         UsageCounter[]
   apiKeys       ApiKey[]
   members       Membership[]
   dunning       DunningNotice[]
-  createdAt     DateTime       @default(now())
+  replays       EventReplay[]
+  createdAt     DateTime        @default(now())
 }
 
 /// A signed-in person. Auth.js owns these rows; nothing here is billed.
@@ -137,6 +138,32 @@ model DunningNotice {
   sentAt          DateTime @default(now())
 
   @@index([tenantId])
+}
+
+/// One row per replay attempt: who asked for which provider event to be
+/// re-applied, and what came of it. Deliberately not keyed by the event id —
+/// the same event may be replayed more than once, and an audit that kept only
+/// the first attempt would hide every one after it.
+model EventReplay {
+  id              String   @id @default(cuid())
+  /// The id as it was asked for, which is not promised to be an event that
+  /// exists: a refused attempt is the kind an audit is read for.
+  providerEventId String
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// Who asked, held as plain columns rather than a relation to User: an audit
+  /// row has to outlive the account it names, and the address is recorded as it
+  /// was at the time, the way DunningNotice records the one it wrote to.
+  userId          String
+  userEmail       String
+  /// What came of it — an applyEvent outcome, or the reason it was refused.
+  /// Null means an attempt that never reported back, which is precisely the
+  /// row worth finding: it is written before the work, so a replay that dies
+  /// halfway is still attributable.
+  outcome         String?
+  requestedAt     DateTime @default(now())
+
+  @@index([tenantId, requestedAt])
 }
 
 /// Metered usage per tenant, per feature, per UTC month.

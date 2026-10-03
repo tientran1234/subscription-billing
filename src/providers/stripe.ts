@@ -182,6 +182,25 @@ export class StripeProvider implements IBillingProvider {
     });
   }
 
+  async fetchEvent(providerEventId: string): Promise<BillingEvent | null> {
+    try {
+      return normalize(await this.stripe.events.retrieve(providerEventId));
+    } catch (err) {
+      // An id Stripe holds nothing under is an answer rather than a failure:
+      // it is what a mistyped id and an id from another account both look like,
+      // and the caller refuses the replay on it. Stripe keeps events for a
+      // month, so one older than that reads the same way — there is nothing
+      // left to re-apply.
+      if (
+        err instanceof Stripe.errors.StripeInvalidRequestError &&
+        err.code === "resource_missing"
+      ) {
+        return null;
+      }
+      throw err;
+    }
+  }
+
   async verifyWebhook(rawBody: string, signature: string): Promise<BillingEvent> {
     let event: Stripe.Event;
     try {

@@ -140,6 +140,17 @@ export interface IBillingProvider {
    * Throws {@link WebhookVerificationError} when the signature does not match.
    */
   verifyWebhook(rawBody: string, signature: string): Promise<BillingEvent>;
+  /**
+   * The provider's own copy of an event, by the id it was delivered under, or
+   * `null` when the provider has none. Normalized through the same code a
+   * webhook goes through, so a replay cannot mean something different from the
+   * delivery it repairs.
+   *
+   * Re-fetched rather than taken from the caller: a payload posted by hand
+   * carries no signature, and accepting one would make the replay endpoint a
+   * second, unsigned writer of everything applyEvent decides.
+   */
+  fetchEvent(providerEventId: string): Promise<BillingEvent | null>;
 }
 
 export class WebhookVerificationError extends Error {

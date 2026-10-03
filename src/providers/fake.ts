@@ -33,6 +33,15 @@ export class FakeProvider implements IBillingProvider {
   readonly previews: PreviewPlanChangeInput[] = [];
   readonly planChanges: ChangePlanInput[] = [];
 
+  /**
+   * Every event this gateway has delivered, by id — what `fetchEvent` reads
+   * back out, the way Stripe keeps a month of its own. Filled by
+   * `verifyWebhook`, because what a gateway can be asked for again is exactly
+   * what it sent. It lives on the adapter, and the app builds one per request,
+   * so re-fetching is for the suites that drive this provider directly.
+   */
+  readonly delivered = new Map<string, BillingEvent>();
+
   constructor(private readonly secret = "fake-secret") {}
 
   async createCheckout(input: CreateCheckoutInput): Promise<CreateCheckoutResult> {
@@ -70,9 +79,15 @@ export class FakeProvider implements IBillingProvider {
       throw new WebhookVerificationError("bad signature");
     }
     const parsed = JSON.parse(rawBody) as BillingEvent & { currentPeriodEnd?: string };
-    return {
+    const event = {
       ...parsed,
       currentPeriodEnd: parsed.currentPeriodEnd ? new Date(parsed.currentPeriodEnd) : undefined,
     };
+    this.delivered.set(event.providerEventId, event);
+    return event;
+  }
+
+  async fetchEvent(providerEventId: string): Promise<BillingEvent | null> {
+    return this.delivered.get(providerEventId) ?? null;
   }
 }
