@@ -19,6 +19,11 @@ import {
   type CurrentPlan,
   type PlanChangeRefusal,
 } from "@/domain/plan-change";
+import {
+  DEFAULT_CURRENCY,
+  checkCurrency,
+  type CurrencyRefusal,
+} from "@/domain/currency";
 import { MIN_SEATS, checkSeats, type SeatRefusal } from "@/domain/seats";
 import { portalCustomerFor } from "@/domain/portal";
 import { predecessorsOf, statusForEvent } from "@/domain/subscription";
@@ -46,14 +51,19 @@ export interface StartCheckoutInput {
   priceRef: string;
   /** Seats to buy. Omitted means the one the person checking out occupies. */
   seats?: number;
+  /**
+   * Currency to bill in — the one the customer was quoted. Omitted means the
+   * default, which is what a client that has never heard of the others sends.
+   */
+  currency?: string;
   customerEmail?: string;
   appUrl: string;
 }
 
 export type StartCheckoutResult =
   | { ok: true; subscriptionId: string; checkoutUrl: string }
-  /** The seat count was refused, so no row was written and no session opened. */
-  | { ok: false; reason: SeatRefusal };
+  /** Refused, so no row was written and no session opened. */
+  | { ok: false; reason: SeatRefusal | CurrencyRefusal };
 
 /**
  * Seats occupied right now.
@@ -72,9 +82,15 @@ export async function startCheckout(
   input: StartCheckoutInput,
 ): Promise<StartCheckoutResult> {
   const seats = input.seats ?? MIN_SEATS;
+  const currency = input.currency ?? DEFAULT_CURRENCY;
 
-  // Checked before the row exists, not after: a subscription for fewer seats
-  // than the workspace already fills would be sold access it cannot hand out.
+  // Both checked before the row exists, not after. A subscription for fewer
+  // seats than the workspace already fills would be sold access it cannot hand
+  // out; one in a currency no plan is priced in would be a session nobody
+  // could pay, and the row left behind is what a late webhook attaches to.
+  const currencyRefusal = checkCurrency(currency);
+  if (currencyRefusal) return { ok: false, reason: currencyRefusal };
+
   const refusal = checkSeats(seats, await seatsInUse(input.tenantId));
   if (refusal) return { ok: false, reason: refusal };
 
@@ -88,6 +104,7 @@ export async function startCheckout(
       status: "PENDING",
       provider: provider.name,
       seats,
+      currency,
     },
   });
 
@@ -99,6 +116,7 @@ export async function startCheckout(
     // something we sell, so no caller gets to ask for a longer one.
     trialDays: trialDaysFor(input.planKey),
     seats,
+    currency,
     customerEmail: input.customerEmail,
     successUrl: `${input.appUrl}/billing/success`,
     cancelUrl: `${input.appUrl}/billing/cancel`,
@@ -173,7 +191,8 @@ async function repriceable(
   tenantId: string,
   target: { planKey: string; seats?: number },
 ): Promise<
-  { ok: true; providerRef: string; seats: number } | { ok: false; reason: PlanChangeFailure }
+  | { ok: true; providerRef: string; seats: number; currency: string }
+  | { ok: false; reason: PlanChangeFailure }
 > {
   const subscription = await db.subscription.findFirst({
     where: { tenantId },
@@ -190,7 +209,16 @@ async function repriceable(
   // The seat count the rule settled on, not the one asked for: a plan move that
   // named no seats keeps the ones already paid for, and quoting anything else
   // would bill for a change the customer did not request.
-  return { ok: true, providerRef: subscription.providerRef, seats: check.seats };
+  //
+  // The currency comes straight off the row and is not a parameter at all. It
+  // was settled at checkout and the provider will not move a live subscription
+  // into another one, so there is nowhere else it could honestly come from.
+  return {
+    ok: true,
+    providerRef: subscription.providerRef,
+    seats: check.seats,
+    currency: subscription.currency,
+  };
 }
 
 /** What the change would cost. Charges nothing and changes nothing. */
@@ -205,6 +233,7 @@ export async function previewPlanChange(
     providerRef: found.providerRef,
     priceRef: input.priceRef,
     seats: found.seats,
+    currency: found.currency,
   });
   return { ok: true, preview };
 }
@@ -233,6 +262,7 @@ export async function confirmPlanChange(
     priceRef: input.priceRef,
     planKey: input.planKey,
     seats: found.seats,
+    currency: found.currency,
     prorationDate: input.prorationDate,
   });
   return { ok: true };

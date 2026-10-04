@@ -4,6 +4,7 @@
  * network. Any new provider must pass the same conformance test this one does.
  */
 import { createHmac } from "node:crypto";
+import { DEFAULT_CURRENCY } from "@/domain/currency";
 import {
   type BillingEvent,
   type ChangePlanInput,
@@ -59,7 +60,10 @@ export class FakeProvider implements IBillingProvider {
     this.previews.push(input);
     return {
       amountDueMinor: FAKE_PRORATION_MINOR,
-      currency: "usd",
+      // The currency it was asked to quote in, not one of its own choosing: a
+      // gateway bills a subscription in the currency it was created with, so a
+      // quote in another is an amount the customer could never be charged.
+      currency: input.currency ?? DEFAULT_CURRENCY,
       prorationDate: new Date(),
       nextInvoiceAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
     };

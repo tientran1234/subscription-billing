@@ -107,6 +107,11 @@ model Subscription {
   /// Seats paid for — the `quantity` on the provider's price. Moves on the paid
   /// invoice that bills for it, exactly as `planKey` does.
   seats            Int       @default(1)
+  /// Currency this subscription is billed in, chosen at checkout. Unlike the
+  /// plan and the seats it never moves: the provider fixes a subscription's
+  /// currency when it creates it and will not reprice a live one into another,
+  /// so a customer changing their mind subscribes again rather than updates.
+  currency         String    @default("usd")
   currentPeriodEnd DateTime?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt

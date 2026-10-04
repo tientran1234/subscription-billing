@@ -98,6 +98,12 @@ export class StripeProvider implements IBillingProvider {
     const session = await this.stripe.checkout.sessions.create({
       mode: "subscription",
       line_items: [{ price: input.priceRef, quantity: seats }],
+      // A Stripe Price carries an amount per currency of its own
+      // (`currency_options`), so the session names which of them this customer
+      // is buying at. That keeps one price id per plan rather than one per
+      // plan per currency for an operator to keep in step, and it is what
+      // fixes the subscription's currency for the rest of its life.
+      currency: input.currency,
       // Echoed back on the webhook, so we can find our row without a lookup.
       client_reference_id: input.subscriptionId,
       // `trialDays` rides along because the completed-session event has to be
@@ -148,6 +154,7 @@ export class StripeProvider implements IBillingProvider {
     const invoice = await this.stripe.invoices.retrieveUpcoming({
       customer: customerRef,
       subscription: input.providerRef,
+      currency: input.currency,
       subscription_details: {
         items: [{ id: itemId, price: input.priceRef, quantity: input.seats ?? 1 }],
         proration_behavior: "always_invoice",
@@ -168,6 +175,9 @@ export class StripeProvider implements IBillingProvider {
 
     const seats = input.seats ?? 1;
 
+    // No currency on the update: Stripe fixed the subscription's when it was
+    // created and refuses to move a live one, so the item below is repriced in
+    // the currency it already has — the same one the preview quoted in.
     await this.stripe.subscriptions.update(input.providerRef, {
       items: [{ id: itemId, price: input.priceRef, quantity: seats }],
       // Invoice the proration now instead of parking it on the next renewal:

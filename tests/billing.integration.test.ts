@@ -18,6 +18,7 @@ import {
 } from "@/server/billing.service";
 import { meter } from "@/server/usage";
 import type { BillingEvent } from "@/domain/billing-event";
+import { CURRENCIES, DEFAULT_CURRENCY } from "@/domain/currency";
 import { PLANS } from "@/domain/entitlements";
 import { FakeProvider } from "@/providers/fake";
 import { QUOTE_TTL_SECONDS } from "@/domain/plan-change";
@@ -42,7 +43,13 @@ const members = async (tenantId: string, n: number) => {
   }
 };
 
-describe.skipIf(!hasDatabase)("billing service", () => {
+/**
+ * Run whole, once per currency we sell. The state machine and the entitlements
+ * derived from it are the same code whatever was paid in — this is what says
+ * so: every outcome and every entitlement below is asserted against a
+ * subscription billed in dong exactly as against one billed in dollars.
+ */
+describe.skipIf(!hasDatabase).each(CURRENCIES)("billing service in %s", (currency) => {
   let tenantId: string;
   let subscriptionId: string;
 
@@ -56,7 +63,7 @@ describe.skipIf(!hasDatabase)("billing service", () => {
     tenantId = tenant.id;
 
     const subscription = await db.subscription.create({
-      data: { tenantId, planKey: "pro", status: "PENDING", checkoutRef: "cs_test_1" },
+      data: { tenantId, planKey: "pro", status: "PENDING", checkoutRef: "cs_test_1", currency },
     });
     subscriptionId = subscription.id;
   });
@@ -266,6 +273,60 @@ describe.skipIf(!hasDatabase)("billing service", () => {
     });
 
     expect(provider.checkouts.map((c) => c.trialDays)).toEqual([PLANS.pro.trialDays, 0]);
+  });
+
+  it("bills the gateway in the currency the checkout chose, and records it", async () => {
+    const provider = new FakeProvider();
+    const started = await startCheckout(provider, {
+      tenantId,
+      planKey: "pro",
+      priceRef: "price_pro",
+      currency,
+      appUrl: "https://x",
+    });
+
+    expect(provider.checkouts).toMatchObject([{ currency }]);
+    const row = await db.subscription.findFirstOrThrow({
+      where: { id: started.ok ? started.subscriptionId : undefined },
+    });
+    // Recorded because it is what was bought, and because nothing may move it
+    // afterwards — the gateway will not reprice a live subscription into
+    // another currency.
+    expect(row.currency).toBe(currency);
+  });
+
+  it("falls back to the default currency when a checkout names none", async () => {
+    const provider = new FakeProvider();
+    const started = await startCheckout(provider, {
+      tenantId,
+      planKey: "pro",
+      priceRef: "price_pro",
+      appUrl: "https://x",
+    });
+
+    const row = await db.subscription.findFirstOrThrow({
+      where: { id: started.ok ? started.subscriptionId : undefined },
+    });
+    expect(row.currency).toBe(DEFAULT_CURRENCY);
+  });
+
+  // The same shape as the seat floor: refused before anything is written, so
+  // no PENDING row is left behind for a webhook to attach itself to.
+  it("refuses a checkout in a currency no plan is priced in", async () => {
+    const provider = new FakeProvider();
+    const before = await db.subscription.count({ where: { tenantId } });
+
+    const started = await startCheckout(provider, {
+      tenantId,
+      planKey: "pro",
+      priceRef: "price_pro",
+      currency: "gbp",
+      appUrl: "https://x",
+    });
+
+    expect(started).toEqual({ ok: false, reason: "unsupported_currency" });
+    expect(provider.checkouts).toEqual([]);
+    expect(await db.subscription.count({ where: { tenantId } })).toBe(before);
   });
 
   it("stores the seats a checkout bought and bills the gateway for them", async () => {
@@ -504,7 +565,7 @@ describe.skipIf(!hasDatabase)("plan change", () => {
 
     expect(result.ok && result.preview.amountDueMinor).toBeGreaterThan(0);
     expect(provider.previews).toEqual([
-      { providerRef: "sub_mine", priceRef: "price_scale", seats: 1 },
+      { providerRef: "sub_mine", priceRef: "price_scale", seats: 1, currency: DEFAULT_CURRENCY },
     ]);
   });
 
@@ -530,6 +591,7 @@ describe.skipIf(!hasDatabase)("plan change", () => {
         priceRef: "price_scale",
         planKey: "scale",
         seats: 1,
+        currency: DEFAULT_CURRENCY,
         prorationDate,
       },
     ]);
@@ -642,6 +704,22 @@ describe.skipIf(!hasDatabase)("plan change", () => {
       seats: 2,
     });
     expect(result.ok).toBe(true);
+  });
+
+  // The currency is settled at checkout and read back off the row, never taken
+  // from whoever is asking: the gateway fixed it when it created the
+  // subscription and refuses to reprice a live one into another, so a quote in
+  // any other currency is an amount the customer could not be charged.
+  it("quotes and bills a change in the currency the subscription was bought in", async () => {
+    await subscribe({ currency: "vnd" });
+
+    const preview = await previewPlanChange(provider, { ...price, tenantId });
+    const prorationDate = preview.ok ? preview.preview.prorationDate : new Date(0);
+    await confirmPlanChange(provider, { ...price, tenantId, prorationDate });
+
+    expect(preview.ok && preview.preview.currency).toBe("vnd");
+    expect(provider.previews).toMatchObject([{ currency: "vnd" }]);
+    expect(provider.planChanges).toMatchObject([{ currency: "vnd" }]);
   });
 
   // A plan move that names no seats keeps the ones already paid for. Billing it

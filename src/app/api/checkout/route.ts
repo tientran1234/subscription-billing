@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CURRENCIES, isCurrency, type CurrencyRefusal } from "@/domain/currency";
 import { isPlanKey } from "@/domain/entitlements";
 import { MAX_SEATS, MIN_SEATS, type SeatRefusal } from "@/domain/seats";
 import { billingProvider } from "@/providers";
@@ -18,15 +19,23 @@ const Body = z
     // checkout. The bounds are the domain's, so this route cannot sell a count
     // the plan picker would refuse.
     seats: z.number().int().min(MIN_SEATS).max(MAX_SEATS).optional(),
+    // Optional too: a client that names none is billed in the default. Which
+    // currencies exist is the domain's answer, so this route cannot open a
+    // session at a price no plan has.
+    currency: z.string().refine(isCurrency, "unsupported currency").optional(),
   })
   .strict();
 
 /** A 409 for the floor: the request is well formed, the workspace is in the way. */
-const SEAT_REFUSALS: Record<SeatRefusal, { status: number; error: string }> = {
+const REFUSALS: Record<SeatRefusal | CurrencyRefusal, { status: number; error: string }> = {
   invalid_seats: { status: 400, error: `seats must be a whole number, at most ${MAX_SEATS}` },
   seats_in_use: {
     status: 409,
     error: "that is fewer seats than this workspace has members",
+  },
+  unsupported_currency: {
+    status: 400,
+    error: `currency must be one of ${CURRENCIES.join(", ")}`,
   },
 };
 
@@ -50,12 +59,13 @@ export const POST = withSession(async (request, { tenantId, email }) => {
     tenantId,
     planKey: parsed.data.planKey,
     seats: parsed.data.seats,
+    currency: parsed.data.currency,
     customerEmail: email,
     priceRef,
     appUrl: e.APP_URL,
   });
   if (!result.ok) {
-    const refusal = SEAT_REFUSALS[result.reason];
+    const refusal = REFUSALS[result.reason];
     return Response.json({ error: refusal.error }, { status: refusal.status });
   }
 

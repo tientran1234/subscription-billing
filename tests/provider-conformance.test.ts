@@ -152,6 +152,28 @@ describe("fake provider", () => {
     expect(provider.planChanges).toMatchObject([{ seats: 6 }]);
   });
 
+  it("buys in the currency it was asked for, and quotes the change in that one", async () => {
+    const provider = new FakeProvider();
+    await provider.createCheckout({
+      subscriptionId: "sub_vn",
+      planKey: "pro",
+      priceRef: "price_x",
+      currency: "vnd",
+      successUrl: "https://x/ok",
+      cancelUrl: "https://x/no",
+    });
+    const preview = await provider.previewPlanChange({
+      providerRef: "sub_vn",
+      priceRef: "price_scale",
+      currency: "vnd",
+    });
+
+    expect(provider.checkouts).toMatchObject([{ currency: "vnd" }]);
+    // A gateway bills a subscription in the currency it was created with, so a
+    // quote that came back in another one is an amount nobody could be charged.
+    expect(preview.currency).toBe("vnd");
+  });
+
   it("records the trial a checkout asked for", async () => {
     const provider = new FakeProvider();
     await provider.createCheckout({

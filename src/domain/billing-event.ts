@@ -57,6 +57,13 @@ export interface CreateCheckoutInput {
    * which is the common checkout: one person buying for themselves.
    */
   seats?: number;
+  /**
+   * Currency to bill in — the one the customer was quoted. Omitted leaves the
+   * provider on its own default for the price. A plain string, like `planKey`:
+   * the neutral layer says what we want and each adapter knows what its
+   * gateway calls it.
+   */
+  currency?: string;
   customerEmail?: string;
   successUrl: string;
   cancelUrl: string;
@@ -85,6 +92,13 @@ export interface PreviewPlanChangeInput {
   priceRef: string;
   /** Seats to be billed after the change. Omitted means one. */
   seats?: number;
+  /**
+   * The currency the subscription is already billed in, read off our own row.
+   * Deliberately not something a caller may choose: a provider fixes it at
+   * creation and will not move a live subscription, so a quote in any other
+   * currency would be a price nobody could be charged.
+   */
+  currency?: string;
 }
 
 export interface PlanChangePreview {
