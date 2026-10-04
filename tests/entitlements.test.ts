@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { PLANS, canUse, entitlementsFor, remaining, trialDaysFor } from "@/domain/entitlements";
+import { CURRENCIES } from "@/domain/currency";
+import {
+  PLANS,
+  canUse,
+  entitlementsFor,
+  priceMinorFor,
+  remaining,
+  trialDaysFor,
+  type PlanKey,
+} from "@/domain/entitlements";
 import { MIN_SEATS } from "@/domain/seats";
 
 describe("entitlements", () => {
@@ -68,5 +77,33 @@ describe("trial length", () => {
   it("offers no trial on Free, which is not sold, or on a plan we dropped", () => {
     expect(trialDaysFor("free")).toBe(0);
     expect(trialDaysFor("legacy-plan")).toBe(0);
+  });
+});
+
+describe("plan prices", () => {
+  const planKeys = Object.keys(PLANS) as PlanKey[];
+
+  // A price per currency rather than one converted on read: a rate that moved
+  // would reprice the catalogue between the page the customer read and the
+  // invoice we send them.
+  it("prices every plan we sell in every currency we sell in", () => {
+    for (const planKey of planKeys) {
+      for (const currency of CURRENCIES) {
+        expect(priceMinorFor(planKey, currency)).toBeTypeOf("number");
+      }
+    }
+  });
+
+  it("gives Free away in all of them", () => {
+    for (const currency of CURRENCIES) expect(priceMinorFor("free", currency)).toBe(0);
+  });
+
+  // A currency added to the list without a real amount on each paid plan would
+  // otherwise read as a plan being given away.
+  it("charges for the paid plans in all of them, in the same order", () => {
+    for (const currency of CURRENCIES) {
+      expect(priceMinorFor("pro", currency)).toBeGreaterThan(0);
+      expect(priceMinorFor("scale", currency)).toBeGreaterThan(priceMinorFor("pro", currency));
+    }
   });
 });

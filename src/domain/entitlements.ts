@@ -7,6 +7,7 @@
  * cancelled customers keep paid access.
  */
 
+import type { Currency } from "./currency";
 import { MIN_SEATS } from "./seats";
 
 export const FEATURES = ["assistant", "export", "api", "sso"] as const;
@@ -15,21 +16,21 @@ export type Feature = (typeof FEATURES)[number];
 export const PLANS = {
   free: {
     name: "Free",
-    priceMinor: 0,
+    prices: { usd: 0, vnd: 0 },
     features: ["assistant"] as Feature[],
     quotas: { aiMessages: 50 },
     trialDays: 0,
   },
   pro: {
     name: "Pro",
-    priceMinor: 1900,
+    prices: { usd: 1_900, vnd: 490_000 },
     features: ["assistant", "export", "api"] as Feature[],
     quotas: { aiMessages: 2_000 },
     trialDays: 14,
   },
   scale: {
     name: "Scale",
-    priceMinor: 9900,
+    prices: { usd: 9_900, vnd: 2_490_000 },
     features: ["assistant", "export", "api", "sso"] as Feature[],
     quotas: { aiMessages: 20_000 },
     trialDays: 14,
@@ -41,6 +42,20 @@ export type QuotaKey = keyof (typeof PLANS)["free"]["quotas"];
 
 export function isPlanKey(value: unknown): value is PlanKey {
   return typeof value === "string" && value in PLANS;
+}
+
+/**
+ * What a plan costs in `currency`, in that currency's minor unit.
+ *
+ * A price per currency rather than one amount converted on read: a rate that
+ * moves would reprice the catalogue between the page a customer read and the
+ * invoice they are sent, and a price list is a round number somebody chose
+ * rather than today's arithmetic. The compiler is what keeps the table whole —
+ * a plan missing a currency, or a currency added without a price on every
+ * plan, is a type error here rather than a free Scale subscription.
+ */
+export function priceMinorFor(planKey: PlanKey, currency: Currency): number {
+  return PLANS[planKey].prices[currency];
 }
 
 /**

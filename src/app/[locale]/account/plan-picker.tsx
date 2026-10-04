@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { formatMoney } from "@/domain/currency";
 import { isQuoteUsable, planChangeOptions, type CurrentPlan } from "@/domain/plan-change";
 import { MAX_SEATS, MIN_SEATS } from "@/domain/seats";
 
@@ -96,12 +97,6 @@ export function PlanPicker({
   const inactive = options.some((option) => option.refusal === "not_billable");
   const tooFewSeats = options.some((option) => option.refusal === "seats_in_use");
 
-  const money = (minor: number, currency: string) =>
-    new Intl.NumberFormat(locale, {
-      style: "currency",
-      currency: currency.toUpperCase(),
-    }).format(minor / 100);
-
   async function quote(offer: PlanOffer) {
     setState({ step: "quoting", offer });
     try {
@@ -174,7 +169,7 @@ export function PlanPicker({
                 is taken now, and the unused time comes off the next invoice. */}
             <dd>
               {quoted.amountDueMinor > 0
-                ? money(quoted.amountDueMinor, quoted.currency)
+                ? formatMoney(quoted.amountDueMinor, quoted.currency, locale)
                 : labels.dueNothing}
             </dd>
             {quoted.nextInvoiceAt ? (
