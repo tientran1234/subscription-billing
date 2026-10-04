@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-04
+
+- Multi-currency: prices per currency with the customer's currency chosen at checkout, entitlements and the state machine unchanged and proven by the existing tests running across two currencies — one price list in dollars is one half the customers here cannot act on, and the currency has to be settled at checkout because the gateway will not reprice a live subscription into another one.
+
 ## 2026-10-03
 
 - Webhook replay: an admin action that re-fetches a Stripe event by id and re-applies it through the same idempotent path, with who replayed what written to an audit table — a delivery that never arrived had no way back in short of the Stripe dashboard, and re-applying one by hand is only safe because the event is re-read from the gateway, tied to a subscription in the caller's own workspace, and claimed by the same primary key a live delivery is.

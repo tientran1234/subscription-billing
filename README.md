@@ -6,7 +6,7 @@ the subscription that paid for it.
 
 Stripe subscription checkout → signed webhook → idempotent event log →
 forward-only state machine → entitlements derived on read. Next.js App Router,
-Postgres via Prisma, English and Vietnamese.
+Postgres via Prisma, English and Vietnamese, dollars and dong.
 
 ## Why it exists
 
@@ -121,6 +121,29 @@ eligibility rule over the number in the field rather than over a set rendered
 with the page, because which plans may be moved to depends on the count being
 asked for — and confirming sends the count that was quoted rather than the one
 in the field, so the price on the screen is the price for those seats.
+
+**A price is per currency, and the currency is chosen once.**
+A plan carries an amount per currency rather than one converted at read time:
+a rate that moves would reprice the catalogue between the page a customer read
+and the invoice they are sent, and a price list is a round number somebody
+chose rather than today's arithmetic. The locale picks which one a page quotes,
+because a Vietnamese price list in dollars is one nobody can act on, and the
+checkout sends the currency it quoted — refused if no plan is priced in it,
+before a row is written and before a session is opened, the same shape the seat
+floor is refused in. What was bought is recorded on the subscription, and unlike
+the plan and the seats it never moves again: the gateway fixes a subscription's
+currency when it creates it and will not reprice a live one into another, so a
+plan change reads the currency off our own row and accepts none from the
+caller. For the same reason no event carries one — there is nothing for a
+webhook to move, and a second writer of something already settled is how two
+copies come to disagree. It stays one price id per plan, because a Stripe Price
+carries an amount per currency of its own (`currency_options`); a price id per
+plan per currency would be this table again, in an environment file, free to
+drift from it. The division into major units is the half that goes wrong
+quietly: the dong has no subdivision, so its minor unit is the dong, and the
+hundred every other amount here needs would quote a Vietnamese customer a price
+a hundred times too small. It is written once, in `src/domain/currency.ts`, and
+the pricing page and the proration quote both go through it.
 
 **Changing plan moves a price, not a status.**
 Upgrading mid-cycle does go through the app, because it is not the thing
@@ -242,6 +265,7 @@ src/
     billing-event.ts   IBillingProvider + neutral DTOs (the contract)
     subscription.ts    status enum + legal transitions + event mapping
     entitlements.ts    plans, features, quotas; entitlements as a pure function
+    currency.ts        the currencies we sell in, and what a minor unit is worth
     plan-change.ts     when a plan may move, and how long a quoted price holds
     seats.ts           how many seats we sell, and the floor the ones in use set
     membership.ts      which tenant a signed-in caller may act for
@@ -271,7 +295,7 @@ src/
     api/plan-change      quote a proration, then change plan at the quoted price
     api/replay           re-apply one provider event by id, for the caller's tenant
     [locale]/            pricing, account and transactions pages, en + vi
-tests/               138 unit + 69 integration against real Postgres
+tests/               149 unit + 94 integration against real Postgres
   e2e/               Playwright: checkout, replay, the cancel drop, the plan change
 ```
 
@@ -329,5 +353,10 @@ on every push, and the end-to-end suite beside it in a job with a browser.
   and none of Stripe's. Pointing it at a test-mode account and a real test
   clock would need credentials CI does not have, and would then fail for
   Stripe's outages as readily as for a bug here.
+- **Converting between currencies.** Each price is chosen per currency rather
+  than computed from a rate, so nothing here reads one — and nothing moves a
+  live subscription from one currency to another, because the gateway will not:
+  a customer who wants to be billed in the other one cancels and subscribes
+  again. Local payment methods and per-currency tax are Stripe's to configure.
 - **A real model call.** `/api/assistant` returns a stub. The entitlement and
   quota gates in front of it are the part that has to be right first.
