@@ -49,6 +49,11 @@ export interface StartCheckoutInput {
   tenantId: string;
   planKey: string;
   priceRef: string;
+  /**
+   * Provider-side price id for the metered add-on, for a plan that bills past
+   * its quota. Omitted buys a subscription whose quota is a ceiling.
+   */
+  overagePriceRef?: string;
   /** Seats to buy. Omitted means the one the person checking out occupies. */
   seats?: number;
   /**
@@ -105,6 +110,10 @@ export async function startCheckout(
       provider: provider.name,
       seats,
       currency,
+      // Recorded because it is part of what was bought, like the seats and the
+      // currency: a subscription opened without the add-on has no meter at the
+      // provider, so nothing may let it past its quota later on.
+      meteredOverage: Boolean(input.overagePriceRef),
     },
   });
 
@@ -115,6 +124,7 @@ export async function startCheckout(
     // Read off the plan here rather than accepted from the route: a trial is
     // something we sell, so no caller gets to ask for a longer one.
     trialDays: trialDaysFor(input.planKey),
+    overagePriceRef: input.overagePriceRef,
     seats,
     currency,
     customerEmail: input.customerEmail,
@@ -366,7 +376,12 @@ export async function entitlementsForTenant(tenantId: string): Promise<Entitleme
     orderBy: { createdAt: "desc" },
   });
   if (!subscription) return entitlementsFor("free", "NONE");
-  return entitlementsFor(subscription.planKey, subscription.status, subscription.seats);
+  return entitlementsFor(
+    subscription.planKey,
+    subscription.status,
+    subscription.seats,
+    subscription.meteredOverage,
+  );
 }
 
 /**

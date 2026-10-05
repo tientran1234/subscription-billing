@@ -89,34 +89,58 @@ model VerificationToken {
 /// One row per subscription attempt. `status` only ever moves forward through
 /// the transitions declared in src/domain/subscription.ts.
 model Subscription {
-  id               String    @id @default(cuid())
+  id               String        @id @default(cuid())
   tenantId         String
-  tenant           Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant           Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   planKey          String
   status           String
-  provider         String    @default("stripe")
+  provider         String        @default("stripe")
   /// Provider's subscription id. Arrives on the first webhook, not at checkout.
-  providerRef      String?   @unique
+  providerRef      String?       @unique
   /// Provider's checkout session id. Known immediately, so webhooks that carry
   /// only the session can still find this row.
-  checkoutRef      String?   @unique
+  checkoutRef      String?       @unique
   /// Provider's customer id, learned from the first webhook. Not unique: a
   /// tenant that cancels and subscribes again keeps the same customer across
   /// both rows. This is what the billing portal opens for.
   customerRef      String?
   /// Seats paid for — the `quantity` on the provider's price. Moves on the paid
   /// invoice that bills for it, exactly as `planKey` does.
-  seats            Int       @default(1)
+  seats            Int           @default(1)
+  /// Whether this subscription was bought with the metered add-on — a second,
+  /// metered item beside the plan's own, which usage past the quota is reported
+  /// against. Recorded because it is part of what was bought, and because a
+  /// subscription opened before the add-on was sold has no meter to report to.
+  meteredOverage   Boolean       @default(false)
   /// Currency this subscription is billed in, chosen at checkout. Unlike the
   /// plan and the seats it never moves: the provider fixes a subscription's
   /// currency when it creates it and will not reprice a live one into another,
   /// so a customer changing their mind subscribes again rather than updates.
-  currency         String    @default("usd")
+  currency         String        @default("usd")
   currentPeriodEnd DateTime?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  usageReports     UsageReport[]
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
 
   @@index([tenantId, status])
+}
+
+/// One row per month of overage reported to the provider. The (subscription,
+/// period) pair is the primary key, so a job that runs twice — on a schedule
+/// and by hand, or after a crash — loses the insert instead of billing the same
+/// month again. A row here means the provider was told: a report it refuses
+/// releases its claim rather than leave one behind, the way a dunning notice
+/// does.
+model UsageReport {
+  subscriptionId String
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  /// The UTC month the figure was counted over, as `meter` buckets usage.
+  period         String
+  /// Units past the quota, which is what was billed — not the raw counter.
+  quantity       Int
+  reportedAt     DateTime     @default(now())
+
+  @@id([subscriptionId, period])
 }
 
 /// Idempotency gate. The provider's event id is the primary key, so a duplicate

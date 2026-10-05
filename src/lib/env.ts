@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { sellsMeteredOverage } from "@/domain/entitlements";
 
 /**
  * Parsed lazily, not at module load: `next build` runs without secrets, and a
@@ -11,6 +12,7 @@ const schema = z.object({
   STRIPE_WEBHOOK_SECRET: z.string().min(1),
   STRIPE_PRICE_PRO: z.string().min(1),
   STRIPE_PRICE_SCALE: z.string().min(1),
+  STRIPE_PRICE_OVERAGE: z.string().min(1),
   APP_URL: z.string().url(),
 });
 
@@ -58,4 +60,19 @@ export function priceRefFor(planKey: string): string | null {
   if (planKey === "pro") return e.STRIPE_PRICE_PRO;
   if (planKey === "scale") return e.STRIPE_PRICE_SCALE;
   return null;
+}
+
+/**
+ * Provider-side price id for the metered add-on, or null for a plan that stops
+ * at its quota.
+ *
+ * One metered price for the deployment rather than one per plan: a message past
+ * the allowance costs the same whichever allowance ran out, and a single price
+ * means a plan change moves the licensed item without having to swap the meter
+ * beside it — which would strand the usage already reported against the old
+ * one. Which plans sell it is still the plan's own answer, so the catalogue in
+ * src/domain/entitlements.ts stays the one place that says what we sell.
+ */
+export function overagePriceRefFor(planKey: string): string | null {
+  return sellsMeteredOverage(planKey) ? env().STRIPE_PRICE_OVERAGE : null;
 }

@@ -5,7 +5,7 @@ import { MAX_SEATS, MIN_SEATS, type SeatRefusal } from "@/domain/seats";
 import { billingProvider } from "@/providers";
 import { startCheckout } from "@/server/billing.service";
 import { withSession } from "@/server/with-session";
-import { env, priceRefFor } from "@/lib/env";
+import { env, overagePriceRefFor, priceRefFor } from "@/lib/env";
 
 export const runtime = "nodejs";
 
@@ -58,6 +58,10 @@ export const POST = withSession(async (request, { tenantId, email }) => {
   const result = await startCheckout(provider, {
     tenantId,
     planKey: parsed.data.planKey,
+    // Whether this plan sells the metered add-on is the plan's answer, not the
+    // caller's: a checkout cannot ask for a meter on a plan that stops at its
+    // quota, nor buy its way out of one that does not.
+    overagePriceRef: overagePriceRefFor(parsed.data.planKey) ?? undefined,
     seats: parsed.data.seats,
     currency: parsed.data.currency,
     customerEmail: email,

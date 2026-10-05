@@ -21,6 +21,7 @@ export const APP_ENV: Record<string, string> = {
   STRIPE_WEBHOOK_SECRET: "whsec_e2e",
   STRIPE_PRICE_PRO: "price_e2e_pro",
   STRIPE_PRICE_SCALE: "price_e2e_scale",
+  STRIPE_PRICE_OVERAGE: "price_e2e_overage",
   APP_URL: BASE_URL,
   // Auth.js parses these before it will answer at all, even though the suite
   // writes its own session rows and never sends a magic link.

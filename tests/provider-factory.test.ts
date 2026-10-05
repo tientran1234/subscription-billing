@@ -14,6 +14,7 @@ Object.assign(process.env, {
   STRIPE_WEBHOOK_SECRET: "whsec_x",
   STRIPE_PRICE_PRO: "price_pro",
   STRIPE_PRICE_SCALE: "price_scale",
+  STRIPE_PRICE_OVERAGE: "price_overage",
   APP_URL: "http://localhost:3000",
 });
 

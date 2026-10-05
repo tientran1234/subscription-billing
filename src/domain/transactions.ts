@@ -144,7 +144,12 @@ export function parseKeyState(raw: string | null | undefined): KeyState | undefi
  * hands it the current period.
  */
 export function parsePeriod(raw: string | null | undefined, fallback: string): string {
-  return /^\d{4}-(0[1-9]|1[0-2])$/.test(raw ?? "") ? (raw as string) : fallback;
+  return isPeriod(raw) ? (raw as string) : fallback;
+}
+
+/** `YYYY-MM`, the UTC month `meter` buckets usage into. */
+export function isPeriod(raw: string | null | undefined): boolean {
+  return /^\d{4}-(0[1-9]|1[0-2])$/.test(raw ?? "");
 }
 
 /**
