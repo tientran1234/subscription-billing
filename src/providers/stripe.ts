@@ -18,6 +18,7 @@ import {
   type IBillingProvider,
   type PlanChangePreview,
   type PreviewPlanChangeInput,
+  type ReportUsageInput,
   WebhookVerificationError,
 } from "@/domain/billing-event";
 
@@ -38,6 +39,10 @@ interface InvoiceLike {
   lines?: { data?: Array<{ period?: { end?: number } }> };
   /** Stripe's snapshot of the subscription's metadata when it finalized this. */
   subscription_details?: { metadata?: Record<string, string> | null } | null;
+}
+interface ItemLike {
+  id: string;
+  price?: { recurring?: { usage_type?: string } | null } | null;
 }
 interface SubscriptionLike {
   id: string;
@@ -66,16 +71,35 @@ const seatsFrom = (value: string | undefined): number | undefined => {
 };
 
 /**
- * The item a plan change reprices. A subscription started by `createCheckout`
- * has exactly one line, so there is nothing to choose between; a subscription
- * with none is not ours to reprice and says so rather than guessing.
+ * Which item is the plan, and which is the add-on beside it. Exported for the
+ * tests, because picking the wrong one of the two is silent: a plan change
+ * would reprice the metered item and bill the customer for a plan they never
+ * chose, and a usage record against the licensed item is refused outright.
+ *
+ * A subscription bought before the add-on existed has only the licensed item,
+ * which is why `meteredItemOf` answers `undefined` rather than throwing — the
+ * caller knows whether this one is supposed to carry one.
+ */
+export function licensedItemOf(items: readonly ItemLike[]): ItemLike | undefined {
+  return items.find((item) => item.price?.recurring?.usage_type !== "metered");
+}
+
+export function meteredItemOf(items: readonly ItemLike[]): ItemLike | undefined {
+  return items.find((item) => item.price?.recurring?.usage_type === "metered");
+}
+
+/**
+ * The item a plan change reprices: the licensed one, deliberately not the first
+ * one Stripe lists. A plan that sells the metered add-on has two items and
+ * their order is not promised, so `data[0]` would be a coin toss between the
+ * price the customer is changing and the meter beside it.
  */
 async function repricedItem(
   stripe: Stripe,
   providerRef: string,
 ): Promise<{ itemId: string; customerRef?: string }> {
   const subscription = await stripe.subscriptions.retrieve(providerRef);
-  const itemId = subscription.items.data[0]?.id;
+  const itemId = licensedItemOf(subscription.items.data)?.id;
   if (!itemId) throw new Error(`Stripe subscription ${providerRef} has no item to reprice`);
   return { itemId, customerRef: refOf(subscription.customer) };
 }
@@ -97,7 +121,13 @@ export class StripeProvider implements IBillingProvider {
 
     const session = await this.stripe.checkout.sessions.create({
       mode: "subscription",
-      line_items: [{ price: input.priceRef, quantity: seats }],
+      line_items: [
+        { price: input.priceRef, quantity: seats },
+        // The metered add-on, for a plan that bills past its quota. No quantity
+        // on this one: what it charges for is the usage reported against it,
+        // and Stripe refuses a metered line that carries a count.
+        ...(input.overagePriceRef ? [{ price: input.overagePriceRef }] : []),
+      ],
       // A Stripe Price carries an amount per currency of its own
       // (`currency_options`), so the session names which of them this customer
       // is buying at. That keeps one price id per plan rather than one per
@@ -190,6 +220,40 @@ export class StripeProvider implements IBillingProvider {
       // locally.
       metadata: { planKey: input.planKey, seats: String(seats) },
     });
+  }
+
+  async reportUsage(input: ReportUsageInput): Promise<void> {
+    const subscription = await this.stripe.subscriptions.retrieve(input.providerRef);
+    const itemId = meteredItemOf(subscription.items.data)?.id;
+    // A subscription our own row says carries the add-on but Stripe has no
+    // meter on is a misconfiguration, not an answer: throwing leaves the
+    // caller's claim released and the month still owing, which is the only
+    // honest outcome — the alternative is a month recorded as billed that
+    // nothing was ever charged for.
+    if (!itemId) {
+      throw new Error(`Stripe subscription ${input.providerRef} has no metered item`);
+    }
+
+    await this.stripe.subscriptionItems.createUsageRecord(
+      itemId,
+      {
+        quantity: input.quantity,
+        // Add to the period rather than set it: Stripe bills a usage record on
+        // whichever of its own billing periods is open when it arrives, and two
+        // UTC months can fall inside one of those, so `set` would overwrite the
+        // first month's figure with the second's.
+        action: "increment",
+        // Left at Stripe's default of now, deliberately. A usage record has to
+        // be timestamped inside the subscription's current billing period, and
+        // the month being reported has by definition closed — dating it back
+        // would be refused. The figure is last month's; the invoice it rides is
+        // the next one.
+      },
+      // The second line of defence, the claim in `UsageReport` being the first:
+      // a run that lost its claim, or one somebody starts by hand, is deduped
+      // by the provider on the pair that identifies the report.
+      { idempotencyKey: `overage:${input.providerRef}:${input.period}` },
+    );
   }
 
   async fetchEvent(providerEventId: string): Promise<BillingEvent | null> {

@@ -6,7 +6,12 @@ import { describe, expect, it } from "vitest";
 import type Stripe from "stripe";
 import { WebhookVerificationError, type IBillingProvider } from "@/domain/billing-event";
 import { FakeProvider } from "@/providers/fake";
-import { StripeProvider, normalize } from "@/providers/stripe";
+import {
+  StripeProvider,
+  licensedItemOf,
+  meteredItemOf,
+  normalize,
+} from "@/providers/stripe";
 
 function contract(name: string, make: () => IBillingProvider) {
   describe(name, () => {
@@ -27,6 +32,9 @@ function contract(name: string, make: () => IBillingProvider) {
     // the plan it moves to reaches us on the invoice that pays for it, like
     // every other fact. `fetchEvent` only reads: it hands business logic an
     // event the provider already delivered, which is what a replay re-applies.
+    // `reportUsage` tells the provider what to put on its next invoice and
+    // decides nothing: what is owed is computed before it is called, and
+    // whether the month has been reported is a claim in our own tables.
     it("exposes no way to change a subscription's status", () => {
       const methods = Object.getOwnPropertyNames(Object.getPrototypeOf(make()))
         .filter((m) => m !== "constructor" && !EXTRAS[name]?.includes(m))
@@ -37,6 +45,7 @@ function contract(name: string, make: () => IBillingProvider) {
         "createPortalSession",
         "fetchEvent",
         "previewPlanChange",
+        "reportUsage",
         "verifyWebhook",
       ]);
     });
@@ -114,6 +123,30 @@ describe("fake provider", () => {
     expect(provider.planChanges[0].prorationDate).toEqual(prorationDate);
   });
 
+  it("reports the units it is handed, under the period they were counted in", async () => {
+    const provider = new FakeProvider();
+    await provider.reportUsage({ providerRef: "sub_1", quantity: 500, period: "2026-09" });
+
+    // The period rides along so a second report of the same month is a no-op
+    // at the gateway too, not only against our own claim.
+    expect(provider.usageReports).toMatchObject([
+      { providerRef: "sub_1", quantity: 500, period: "2026-09" },
+    ]);
+  });
+
+  it("asks the gateway for the metered add-on when the plan sells one", async () => {
+    const provider = new FakeProvider();
+    await provider.createCheckout({
+      subscriptionId: "sub_metered",
+      planKey: "pro",
+      priceRef: "price_pro",
+      overagePriceRef: "price_overage",
+      successUrl: "https://x/ok",
+      cancelUrl: "https://x/no",
+    });
+    expect(provider.checkouts).toMatchObject([{ overagePriceRef: "price_overage" }]);
+  });
+
   it("returns a checkout url and a reference", async () => {
     const result = await new FakeProvider().createCheckout({
       subscriptionId: "sub_local",
@@ -185,6 +218,36 @@ describe("fake provider", () => {
       cancelUrl: "https://x/no",
     });
     expect(provider.checkouts).toMatchObject([{ planKey: "pro", trialDays: 14 }]);
+  });
+});
+
+describe("stripe subscription items", () => {
+  const licensed = { id: "si_plan", price: { recurring: { usage_type: "licensed" } } };
+  const metered = { id: "si_meter", price: { recurring: { usage_type: "metered" } } };
+
+  // Both halves of this are silent when they are wrong: a plan change that
+  // repriced the meter would bill the customer for a plan they never chose,
+  // and a usage record against the licensed item is refused by Stripe. The
+  // order the two items come back in is not promised, so neither can be found
+  // by position.
+  it("finds the plan and the meter whichever order they arrive in", () => {
+    expect(licensedItemOf([metered, licensed])?.id).toBe("si_plan");
+    expect(meteredItemOf([licensed, metered])?.id).toBe("si_meter");
+  });
+
+  it("finds the plan on a subscription bought before the add-on was sold", () => {
+    expect(licensedItemOf([licensed])?.id).toBe("si_plan");
+    // Undefined rather than a throw: the caller knows whether this
+    // subscription is supposed to carry a meter, and `reportUsage` is the one
+    // that refuses.
+    expect(meteredItemOf([licensed])).toBeUndefined();
+  });
+
+  it("takes an item with no recurring price at all for the plan", () => {
+    // A one-off line is not a meter, and guessing otherwise would report usage
+    // against something that cannot carry it.
+    expect(licensedItemOf([{ id: "si_once" }])?.id).toBe("si_once");
+    expect(meteredItemOf([{ id: "si_once" }])).toBeUndefined();
   });
 });
 

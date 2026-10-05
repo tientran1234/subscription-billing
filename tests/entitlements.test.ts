@@ -6,6 +6,7 @@ import {
   entitlementsFor,
   priceMinorFor,
   remaining,
+  sellsMeteredOverage,
   trialDaysFor,
   type PlanKey,
 } from "@/domain/entitlements";
@@ -62,6 +63,33 @@ describe("entitlements", () => {
     expect(entitlementsFor("free", "NONE").seats).toBe(MIN_SEATS);
   });
 
+  it("bills past the quota only for a subscription that bought the add-on", () => {
+    expect(entitlementsFor("pro", "ACTIVE", 1, true).meteredOverage).toBe(true);
+    // A subscription opened before the add-on was sold has no meter at the
+    // gateway, so letting it past its quota would be usage nobody can invoice.
+    expect(entitlementsFor("pro", "ACTIVE", 1, false).meteredOverage).toBe(false);
+  });
+
+  it("keeps billing past the quota while a renewal is being retried", () => {
+    // PAST_DUE keeps paid access, so the usage happens; a failed card is a
+    // reason to write to the customer, not to hand them the month free.
+    expect(entitlementsFor("pro", "PAST_DUE", 1, true).meteredOverage).toBe(true);
+  });
+
+  it("stops a trial at the quota instead of billing past it", () => {
+    // A trial takes no money. One that ends with an invoice for the messages
+    // it was spent judging the product on is not a trial.
+    expect(entitlementsFor("pro", "TRIALING", 1, true).meteredOverage).toBe(false);
+  });
+
+  it("stops billing a cancelled workspace for what it uses", () => {
+    expect(entitlementsFor("pro", "CANCELED", 1, true).meteredOverage).toBe(false);
+  });
+
+  it("bills nothing past a quota the plan sells as a ceiling", () => {
+    expect(entitlementsFor("free", "ACTIVE", 1, true).meteredOverage).toBe(false);
+  });
+
   it("never reports negative quota left", () => {
     const e = entitlementsFor("free", "ACTIVE");
     expect(remaining(e, "aiMessages", 999)).toBe(0);
@@ -77,6 +105,19 @@ describe("trial length", () => {
   it("offers no trial on Free, which is not sold, or on a plan we dropped", () => {
     expect(trialDaysFor("free")).toBe(0);
     expect(trialDaysFor("legacy-plan")).toBe(0);
+  });
+});
+
+describe("the metered add-on", () => {
+  it("is sold with the paid plans and not with Free", () => {
+    expect(sellsMeteredOverage("pro")).toBe(true);
+    expect(sellsMeteredOverage("scale")).toBe(true);
+    // Free has no subscription for a usage record to attach to.
+    expect(sellsMeteredOverage("free")).toBe(false);
+  });
+
+  it("is not sold on a plan we dropped", () => {
+    expect(sellsMeteredOverage("legacy-plan")).toBe(false);
   });
 });
 

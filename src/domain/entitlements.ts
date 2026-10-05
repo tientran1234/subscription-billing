@@ -20,6 +20,10 @@ export const PLANS = {
     features: ["assistant"] as Feature[],
     quotas: { aiMessages: 50 },
     trialDays: 0,
+    // Free stops at its quota rather than billing past it: there is no
+    // subscription behind it for a usage record to attach to, so a message
+    // beyond the fiftieth could only be given away or refused.
+    meteredOverage: false,
   },
   pro: {
     name: "Pro",
@@ -27,6 +31,7 @@ export const PLANS = {
     features: ["assistant", "export", "api"] as Feature[],
     quotas: { aiMessages: 2_000 },
     trialDays: 14,
+    meteredOverage: true,
   },
   scale: {
     name: "Scale",
@@ -34,6 +39,7 @@ export const PLANS = {
     features: ["assistant", "export", "api", "sso"] as Feature[],
     quotas: { aiMessages: 20_000 },
     trialDays: 14,
+    meteredOverage: true,
   },
 } as const;
 
@@ -67,6 +73,16 @@ export function trialDaysFor(planKey: string): number {
   return isPlanKey(planKey) ? PLANS[planKey].trialDays : 0;
 }
 
+/**
+ * Does this plan bill what is used beyond its quota, rather than refusing it?
+ * `false` for a plan we no longer sell, the way `trialDaysFor` answers zero:
+ * the add-on is bought at checkout, and nothing can buy one on a plan that is
+ * not there.
+ */
+export function sellsMeteredOverage(planKey: string): boolean {
+  return isPlanKey(planKey) && PLANS[planKey].meteredOverage;
+}
+
 export interface Entitlements {
   planKey: PlanKey;
   /**
@@ -77,6 +93,12 @@ export interface Entitlements {
   seats: number;
   features: readonly Feature[];
   quotas: Readonly<Record<QuotaKey, number>>;
+  /**
+   * Whether the quota above is a threshold rather than a ceiling: usage beyond
+   * it goes through and is billed as a metered add-on. An entitlement like
+   * every other here, so it ends when the subscription paying for it does.
+   */
+  meteredOverage: boolean;
 }
 
 /**
@@ -89,10 +111,22 @@ export interface Entitlements {
  */
 const STATUSES_WITH_PAID_ACCESS = new Set(["ACTIVE", "TRIALING", "PAST_DUE"]);
 
+/**
+ * Which of those may also run up a bill beyond the quota. TRIALING is
+ * deliberately not one: a trial takes no money, and one that ends with an
+ * invoice for the messages it was spent judging the product on is not a trial
+ * — so the quota is where a trial stops. PAST_DUE is one, because it keeps paid
+ * access on purpose: the usage happens, and a renewal that failed is a reason
+ * to write to the customer rather than a reason to hand them the month free.
+ */
+const STATUSES_THAT_BILL_OVERAGE = new Set(["ACTIVE", "PAST_DUE"]);
+
 export function entitlementsFor(
   planKey: string,
   status: string,
   seats = MIN_SEATS,
+  /** Whether the subscription was bought with the metered add-on. */
+  meteredOverage = false,
 ): Entitlements {
   const paid = isPlanKey(planKey) && STATUSES_WITH_PAID_ACCESS.has(status);
   const effective: PlanKey = paid ? planKey : "free";
@@ -105,6 +139,12 @@ export function entitlementsFor(
     seats: paid ? Math.max(MIN_SEATS, seats) : MIN_SEATS,
     features: plan.features,
     quotas: plan.quotas,
+    // Three things have to agree before a quota becomes a threshold: the plan
+    // sells the add-on, the subscription was bought with one, and the status is
+    // one the gateway will still invoice. Anything else is a ceiling — usage
+    // nobody will be charged for must not be usage we let through.
+    meteredOverage:
+      plan.meteredOverage && meteredOverage && STATUSES_THAT_BILL_OVERAGE.has(status),
   };
 }
 

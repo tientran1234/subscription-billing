@@ -15,6 +15,7 @@ import {
   type IBillingProvider,
   type PlanChangePreview,
   type PreviewPlanChangeInput,
+  type ReportUsageInput,
   WebhookVerificationError,
 } from "@/domain/billing-event";
 
@@ -25,14 +26,16 @@ export class FakeProvider implements IBillingProvider {
   readonly name = "fake";
 
   /**
-   * Every checkout opened, preview taken and plan change made through this
-   * provider. Nothing in the app reads them; they are how a test sees which
-   * subscription was repriced, what trial and how many seats a checkout asked
-   * for, and that a refused change never reached the provider at all.
+   * Every checkout opened, preview taken, plan change made and usage figure
+   * reported through this provider. Nothing in the app reads them; they are how
+   * a test sees which subscription was repriced, what trial and how many seats
+   * a checkout asked for, that a refused change never reached the provider at
+   * all, and that a month's overage was reported exactly once.
    */
   readonly checkouts: CreateCheckoutInput[] = [];
   readonly previews: PreviewPlanChangeInput[] = [];
   readonly planChanges: ChangePlanInput[] = [];
+  readonly usageReports: ReportUsageInput[] = [];
 
   /**
    * Every event this gateway has delivered, by id — what `fetchEvent` reads
@@ -71,6 +74,10 @@ export class FakeProvider implements IBillingProvider {
 
   async changePlan(input: ChangePlanInput): Promise<void> {
     this.planChanges.push(input);
+  }
+
+  async reportUsage(input: ReportUsageInput): Promise<void> {
+    this.usageReports.push(input);
   }
 
   /** Sign a payload the way the fake gateway would — test helper. */

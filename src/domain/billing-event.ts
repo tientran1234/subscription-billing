@@ -58,6 +58,12 @@ export interface CreateCheckoutInput {
    */
   seats?: number;
   /**
+   * Provider-side price id for the metered add-on, for a plan that bills what
+   * is used beyond its quota. Omitted means the quota is where that plan stops,
+   * and the subscription is then created with nothing to report usage against.
+   */
+  overagePriceRef?: string;
+  /**
    * Currency to bill in — the one the customer was quoted. Omitted leaves the
    * provider on its own default for the price. A plain string, like `planKey`:
    * the neutral layer says what we want and each adapter knows what its
@@ -72,6 +78,25 @@ export interface CreateCheckoutInput {
 export interface CreateCheckoutResult {
   checkoutUrl: string;
   checkoutRef: string;
+}
+
+export interface ReportUsageInput {
+  /** Provider's subscription id — the one carrying the metered add-on. */
+  providerRef: string;
+  /**
+   * Units past the plan's quota. Never the raw counter: the plan has already
+   * been paid for, so reporting everything metered would charge twice for the
+   * messages it includes.
+   */
+  quantity: number;
+  /**
+   * The closed month the figure was counted over, `YYYY-MM`. It does not say
+   * when the provider bills it — a usage record lands on the invoice for the
+   * provider's own current period, and a billing cycle is not a UTC month — but
+   * it is what makes a second report of the same month a no-op at the provider
+   * as well as here.
+   */
+  period: string;
 }
 
 export interface CreatePortalInput {
@@ -154,6 +179,20 @@ export interface IBillingProvider {
    * Throws {@link WebhookVerificationError} when the signature does not match.
    */
   verifyWebhook(rawBody: string, signature: string): Promise<BillingEvent>;
+  /**
+   * Report usage past the plan's quota, for the provider to bill on its next
+   * invoice.
+   *
+   * It adds to the period's usage rather than setting it, and carries the
+   * period in an idempotency key of its own: a billing cycle is not a UTC
+   * month, so two months' reports can land on one invoice and a write that set
+   * the figure would overwrite the first of them with the second.
+   *
+   * Nothing here decides what is owed — the units arrive computed, by the rule
+   * in src/domain/overage.ts — and nothing here records that the month was
+   * reported, which is a claim in our own tables.
+   */
+  reportUsage(input: ReportUsageInput): Promise<void>;
   /**
    * The provider's own copy of an event, by the id it was delivered under, or
    * `null` when the provider has none. Normalized through the same code a
