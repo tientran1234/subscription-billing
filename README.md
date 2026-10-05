@@ -145,6 +145,49 @@ hundred every other amount here needs would quote a Vietnamese customer a price
 a hundred times too small. It is written once, in `src/domain/currency.ts`, and
 the pricing page and the proration quote both go through it.
 
+**A quota is a ceiling or a threshold, and a month is reported once.**
+Which of the two it is belongs to the plan. Free stops at its fifty messages
+because there is no subscription for a usage record to attach to; a plan that
+sells the metered add-on bills what is used past its allowance instead of
+refusing the call. Only the units past the quota are ever reported — the plan
+has already paid for everything up to it, so sending the raw counter would
+charge twice for the messages it includes. Whether a call may go past is read
+off the entitlement rather than the row underneath it, so the instant a
+workspace stops being billed for exceeding its quota is the instant it stops
+being let past: a trial is deliberately not a status that bills, because it
+takes no money and one that ends with an invoice for the messages it was spent
+judging the product on is not a trial, while `PAST_DUE` is one, for the same
+reason it keeps paid access. The add-on is bought at checkout as a second,
+metered item beside the plan's own — with no quantity on it, because what it
+charges for is the usage reported against it — and it is recorded on the
+subscription, since one opened before the add-on was sold has no meter to
+report to and must not be let past its quota afterwards. Two items in no
+promised order is also why the plan change finds the licensed one by its price
+rather than taking whichever the gateway lists first: repricing the meter would
+bill a customer for a plan they never chose, and a usage record against the
+licensed item is refused outright.
+
+**The overage job is idempotent per period, not per run.**
+The figure is a month's, and the month has to be over: a report is claimed once
+per period, so one raised while the month was still running would spend that
+claim on a partial figure and bill none of the rest. The claim is the guarantee
+rather than the scheduler — `UsageReport` is keyed by (subscription, period),
+written before the report and released if the gateway refuses it, the same
+shape a dunning notice is claimed in — so a cron that fires twice, a retry
+after a crash and a run by hand all bill the month once. A closed month's
+counter cannot move again, which is what makes that figure worth claiming: the
+number a second run computes is the number the first one sent. The job reports
+a workspace's newest subscription and no other, because the counter belongs to
+the workspace rather than to one of its subscription rows, and a job that
+walked the rows would bill a workspace that cancelled and subscribed again once
+per row. What reaches the gateway adds to its period rather than setting it: a
+billing cycle is not a UTC month, two of ours can fall inside one of theirs,
+and a write that set the figure would overwrite the first with the second. It
+carries the period in an idempotency key of its own as the second line of
+defence, and no timestamp at all — a usage record has to be dated inside the
+subscription's current billing period, and the month being reported has by
+definition closed.
+
 **Changing plan moves a price, not a status.**
 Upgrading mid-cycle does go through the app, because it is not the thing
 cancelling is. `/api/plan-change` quotes the proration with
@@ -266,6 +309,7 @@ src/
     subscription.ts    status enum + legal transitions + event mapping
     entitlements.ts    plans, features, quotas; entitlements as a pure function
     currency.ts        the currencies we sell in, and what a minor unit is worth
+    overage.ts         what is owed past the quota, and when a month may be billed
     plan-change.ts     when a plan may move, and how long a quoted price holds
     seats.ts           how many seats we sell, and the floor the ones in use set
     membership.ts      which tenant a signed-in caller may act for
@@ -280,6 +324,7 @@ src/
   server/
     billing.service.ts  the only place a subscription status changes
     usage.ts            metered quota
+    usage-report.ts     one closed month of overage, reported at most once
     dunning.ts          claim the event id, render, send — at most once
     replay.ts           re-fetch one event, re-apply it, record who asked
     mailer.ts           the SMTP seam, so tests can read what was composed
@@ -294,8 +339,9 @@ src/
     api/portal           a link into Stripe's billing portal, for the caller's tenant
     api/plan-change      quote a proration, then change plan at the quoted price
     api/replay           re-apply one provider event by id, for the caller's tenant
+    api/usage-report     report a closed month's overage, for a `billing:write` key
     [locale]/            pricing, account and transactions pages, en + vi
-tests/               149 unit + 94 integration against real Postgres
+tests/               173 unit + 104 integration against real Postgres
   e2e/               Playwright: checkout, replay, the cancel drop, the plan change
 ```
 
@@ -320,6 +366,11 @@ portal; the portal needs to be enabled once, in the Stripe dashboard under
 Settings → Billing → Customer portal. `/admin` lists that tenant's subscription
 attempts and what each API key spent, a page at a time, and is where an event
 the endpoint missed is replayed by id.
+
+A closed month's overage is reported by posting to `/api/usage-report` with an
+API key scoped `billing:write` — once a month, from whatever cron the
+deployment has. Posting it twice bills nothing twice, so a scheduler that fires
+late or fires again is safe to point at it.
 
 ```bash
 pnpm test        # unit tests run anywhere; integration tests need DATABASE_URL
@@ -358,5 +409,21 @@ on every push, and the end-to-end suite beside it in a job with a browser.
   live subscription from one currency to another, because the gateway will not:
   a customer who wants to be billed in the other one cancels and subscribes
   again. Local payment methods and per-currency tax are Stripe's to configure.
+- **A spend cap.** On a plan that sells the metered add-on the quota is a
+  threshold, and nothing here stops a workspace running up an invoice past it:
+  a ceiling a customer sets for themselves, and the mail that warns them before
+  they reach it, are both worth having and neither is written.
+- **A scheduler.** The overage job is a route a machine credential posts to;
+  what calls it once a month is the deployment's cron. A single run across
+  every workspace would need an operator credential, which is the same thing
+  invites and roles are missing above — so the job is scoped to the caller's
+  own tenant, and a month nobody asks about is simply not reported. The claim
+  means a late run still bills it correctly, not that one happens.
+- **Overage on the invoice for the month it was used in.** A usage record is
+  billed on whichever of the gateway's own periods is open when it arrives, and
+  a UTC month is our quota bucket rather than its billing cycle — so September's
+  overage rides the next invoice instead of September's. Lining the two up would
+  mean counting the quota on the subscription's anniversary, which is a
+  different product.
 - **A real model call.** `/api/assistant` returns a stub. The entitlement and
   quota gates in front of it are the part that has to be right first.

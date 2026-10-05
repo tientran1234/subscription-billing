@@ -18,5 +18,5 @@ Same rule: one item per change, in order.
 - [x] Seats: `quantity` on checkout and subscription, seat count in entitlements, proration preview on seat change, and a guard that refuses to drop seats below the seats in use.
 - [x] Webhook replay: an admin action that re-fetches a Stripe event by id and re-applies it through the same idempotent path; who replayed what is written to an audit table.
 - [x] Multi-currency: prices per currency with the customer's currency chosen at checkout; entitlements and the state machine unchanged, proven by the existing tests running across two currencies.
-- [ ] Metered add-on: usage beyond the plan quota billed through Stripe usage records, reported once per period by a durable job that is idempotent per period.
+- [x] Metered add-on: usage beyond the plan quota billed through Stripe usage records, reported once per period by a durable job that is idempotent per period.
 - [ ] Invoice history on the account page, read live from Stripe with hosted PDF links — no local copy of invoice data to drift.

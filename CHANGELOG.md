@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-05
+
+- Metered add-on: usage beyond the plan quota billed through Stripe usage records, reported once per period by a durable job that is idempotent per period — a quota that refuses the call is a product decision rather than a billing one, and the job can only be safe to re-run if the month it reports has closed and the month it claims is a primary key.
+
 ## 2026-10-04
 
 - Multi-currency: prices per currency with the customer's currency chosen at checkout, entitlements and the state machine unchanged and proven by the existing tests running across two currencies — one price list in dollars is one half the customers here cannot act on, and the currency has to be settled at checkout because the gateway will not reprice a live subscription into another one.
