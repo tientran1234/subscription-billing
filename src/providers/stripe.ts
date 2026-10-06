@@ -16,11 +16,13 @@ import {
   type CreatePortalInput,
   type CreatePortalResult,
   type IBillingProvider,
+  type ListInvoicesInput,
   type PlanChangePreview,
   type PreviewPlanChangeInput,
   type ReportUsageInput,
   WebhookVerificationError,
 } from "@/domain/billing-event";
+import { invoiceStatusFrom, type Invoice } from "@/domain/invoice";
 
 /**
  * Only the fields we actually read, declared locally on purpose: an SDK or API
@@ -173,6 +175,18 @@ export class StripeProvider implements IBillingProvider {
     return { portalUrl: session.url };
   }
 
+  async listInvoices(input: ListInvoicesInput): Promise<Invoice[]> {
+    // No `status` filter on the call, though Stripe takes one: it takes
+    // exactly one status, and the four this list shows would be four requests.
+    // Which of them are history is our rule anyway — see domain/invoice.ts —
+    // and asking the gateway to apply half of it would put it in two places.
+    const page = await this.stripe.invoices.list({
+      customer: input.customerRef,
+      limit: input.limit,
+    });
+    return page.data.map(normalizeInvoice);
+  }
+
   async previewPlanChange(input: PreviewPlanChangeInput): Promise<PlanChangePreview> {
     const { itemId, customerRef } = await repricedItem(this.stripe, input.providerRef);
 
@@ -284,6 +298,36 @@ export class StripeProvider implements IBillingProvider {
     }
     return normalize(event);
   }
+}
+
+/**
+ * One listed invoice, as the neutral DTO. Exported for the tests, like
+ * {@link normalize}: nothing but the mapping is worth asserting here, and the
+ * two fields that go quietly wrong are the status — which decides whether a
+ * customer is told they were charged — and the hosted links, which Stripe
+ * leaves off an invoice it has not finalized.
+ *
+ * Read off the SDK's own `Stripe.Invoice` rather than a locally declared
+ * shape, unlike the event objects below: a listed invoice arrives typed, so a
+ * version bump that moves one of these fields is already a compile error here.
+ */
+export function normalizeInvoice(invoice: Stripe.Invoice): Invoice {
+  return {
+    id: invoice.id,
+    number: invoice.number,
+    createdAt: new Date(invoice.created * 1000),
+    status: invoiceStatusFrom(invoice.status),
+    // The total, not `amount_paid`: an invoice that failed or was written off
+    // is still part of the history, and showing nothing paid as nothing owed
+    // would hide the one row a past-due customer opened this page to find.
+    totalMinor: invoice.total,
+    currency: invoice.currency,
+    // Rendered straight into the page, unlike a portal link: these live on the
+    // invoice itself rather than being minted per click, so one read today is
+    // still the same document tomorrow.
+    hostedUrl: invoice.hosted_invoice_url ?? null,
+    pdfUrl: invoice.invoice_pdf ?? null,
+  };
 }
 
 /** Exported for the tests: the mapping is the part worth asserting. */

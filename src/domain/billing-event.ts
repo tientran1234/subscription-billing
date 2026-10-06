@@ -7,6 +7,8 @@
  * adapter that satisfies `IBillingProvider` — nothing else changes.
  */
 
+import type { Invoice } from "./invoice";
+
 export type BillingEventType =
   | "subscription_activated"
   /** Checkout completed on a plan with a trial: access now, first invoice later. */
@@ -110,6 +112,17 @@ export interface CreatePortalResult {
   portalUrl: string;
 }
 
+export interface ListInvoicesInput {
+  /** Provider-side customer id, resolved from the caller's own tenant. */
+  customerRef: string;
+  /**
+   * How many of the customer's most recent invoices to read, newest first.
+   * Passed in rather than decided here: how long an invoice history is is a
+   * product question, and it is answered in src/domain/invoice.ts.
+   */
+  limit: number;
+}
+
 export interface PreviewPlanChangeInput {
   /** Provider's subscription id — the one being repriced. */
   providerRef: string;
@@ -158,6 +171,20 @@ export interface IBillingProvider {
    * machine stays the one path it can move along.
    */
   createPortalSession(input: CreatePortalInput): Promise<CreatePortalResult>;
+  /**
+   * The customer's most recent invoices, as the provider holds them.
+   *
+   * A read, and the only one here that is not about an event. Nothing is
+   * stored from it: an invoice keeps changing after it is raised — a retried
+   * payment, an amount written off, a credit note — and a copy of one would be
+   * a second answer to what a customer was charged, disagreeing with the
+   * document they can already open.
+   *
+   * Which of them are history is not the adapter's to decide; it normalizes
+   * what the gateway has, including the draft the gateway is still assembling,
+   * and the rule in src/domain/invoice.ts drops that.
+   */
+  listInvoices(input: ListInvoicesInput): Promise<Invoice[]>;
   /**
    * What moving to `priceRef` would cost right now: the proration computed,
    * quoted, and not charged. Nothing here changes a subscription, so a preview

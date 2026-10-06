@@ -6,11 +6,13 @@ import { describe, expect, it } from "vitest";
 import type Stripe from "stripe";
 import { WebhookVerificationError, type IBillingProvider } from "@/domain/billing-event";
 import { FakeProvider } from "@/providers/fake";
+import { INVOICE_HISTORY_LIMIT } from "@/domain/invoice";
 import {
   StripeProvider,
   licensedItemOf,
   meteredItemOf,
   normalize,
+  normalizeInvoice,
 } from "@/providers/stripe";
 
 function contract(name: string, make: () => IBillingProvider) {
@@ -35,6 +37,9 @@ function contract(name: string, make: () => IBillingProvider) {
     // `reportUsage` tells the provider what to put on its next invoice and
     // decides nothing: what is owed is computed before it is called, and
     // whether the month has been reported is a claim in our own tables.
+    // `listInvoices` only reads, and nothing is kept from what it reads: an
+    // invoice history is the gateway's own documents, so a copy of one here
+    // would be a second answer to what a customer was charged.
     it("exposes no way to change a subscription's status", () => {
       const methods = Object.getOwnPropertyNames(Object.getPrototypeOf(make()))
         .filter((m) => m !== "constructor" && !EXTRAS[name]?.includes(m))
@@ -44,6 +49,7 @@ function contract(name: string, make: () => IBillingProvider) {
         "createCheckout",
         "createPortalSession",
         "fetchEvent",
+        "listInvoices",
         "previewPlanChange",
         "reportUsage",
         "verifyWebhook",
@@ -97,6 +103,34 @@ describe("fake provider", () => {
     });
     expect(portalUrl).toMatch(/^https?:\/\//);
     expect(portalUrl).toContain("cus_local");
+  });
+
+  it("lists the invoices of the customer it was asked about, and no more than asked", async () => {
+    const provider = new FakeProvider();
+    const invoices = await provider.listInvoices({ customerRef: "cus_local", limit: 2 });
+
+    expect(invoices).toHaveLength(2);
+    // Whose invoices these are is the one thing this call can get wrong
+    // without anybody noticing, so the fake puts the customer in the ids.
+    for (const invoice of invoices) expect(invoice.id).toContain("cus_local");
+    // A limit the gateway ignored would be a page longer than the one the
+    // product asked for, and on a slow account that is the whole archive.
+    expect(await provider.listInvoices({ customerRef: "cus_local", limit: 1 })).toHaveLength(1);
+  });
+
+  it("hands back the draft it is assembling rather than filtering it out", async () => {
+    // The adapter normalizes what the gateway has; which invoices are history
+    // is domain/invoice.ts's rule, and an adapter that applied half of it
+    // would put the rule in two places for the next adapter to get wrong.
+    const invoices = await new FakeProvider().listInvoices({
+      customerRef: "cus_local",
+      limit: INVOICE_HISTORY_LIMIT,
+    });
+    expect(invoices.some((invoice) => invoice.status === "draft")).toBe(true);
+    // And it carries no document, which is why showing one would be a row
+    // with an amount and nothing to open.
+    const draft = invoices.find((invoice) => invoice.status === "draft");
+    expect(draft).toMatchObject({ number: null, hostedUrl: null, pdfUrl: null });
   });
 
   it("bills the plan change as of the instant it quoted", async () => {
@@ -248,6 +282,59 @@ describe("stripe subscription items", () => {
     // against something that cannot carry it.
     expect(licensedItemOf([{ id: "si_once" }])?.id).toBe("si_once");
     expect(meteredItemOf([{ id: "si_once" }])).toBeUndefined();
+  });
+});
+
+const stripeInvoice = (over: Record<string, unknown>) =>
+  ({
+    id: "in_1",
+    number: "ACME-0001",
+    created: 1_800_000_000,
+    status: "paid",
+    total: 2_900,
+    currency: "usd",
+    hosted_invoice_url: "https://stripe.test/i/one",
+    invoice_pdf: "https://stripe.test/i/one.pdf",
+    ...over,
+  }) as unknown as Stripe.Invoice;
+
+describe("stripe invoice normalisation", () => {
+  it("carries the document, the total and the month it was raised in", () => {
+    expect(normalizeInvoice(stripeInvoice({}))).toEqual({
+      id: "in_1",
+      number: "ACME-0001",
+      createdAt: new Date(1_800_000_000 * 1000),
+      status: "paid",
+      totalMinor: 2_900,
+      currency: "usd",
+      hostedUrl: "https://stripe.test/i/one",
+      pdfUrl: "https://stripe.test/i/one.pdf",
+    });
+  });
+
+  it("keeps the total of an invoice that was not paid", () => {
+    // `amount_paid` on a failed renewal is zero, and a history that read it
+    // would show nothing owed on the one row a past-due customer came for.
+    const invoice = normalizeInvoice(
+      stripeInvoice({ status: "open", total: 2_900, amount_paid: 0 }),
+    );
+    expect(invoice).toMatchObject({ status: "open", totalMinor: 2_900 });
+  });
+
+  it("reports no document rather than undefined when Stripe hosts none", () => {
+    // Null, not undefined: the page branches on it, and an invoice Stripe has
+    // not finalized has neither of these.
+    expect(
+      normalizeInvoice(stripeInvoice({ hosted_invoice_url: null, invoice_pdf: null })),
+    ).toMatchObject({ hostedUrl: null, pdfUrl: null });
+  });
+
+  it("reads a status it does not recognise as a draft", () => {
+    // The safe way round: a draft is the one status this list never shows, so
+    // a gateway that will not say whether an invoice was issued cannot make us
+    // tell a customer they were charged.
+    expect(normalizeInvoice(stripeInvoice({ status: null })).status).toBe("draft");
+    expect(normalizeInvoice(stripeInvoice({ status: "something_new" })).status).toBe("draft");
   });
 });
 

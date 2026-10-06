@@ -13,14 +13,52 @@ import {
   type CreatePortalInput,
   type CreatePortalResult,
   type IBillingProvider,
+  type ListInvoicesInput,
   type PlanChangePreview,
   type PreviewPlanChangeInput,
   type ReportUsageInput,
   WebhookVerificationError,
 } from "@/domain/billing-event";
+import type { Invoice } from "@/domain/invoice";
 
 /** What a preview quotes. Made up — the fake is here for the flow, not the money. */
 export const FAKE_PRORATION_MINOR = 1_234;
+
+/**
+ * The history this gateway holds for any customer: a month it is still
+ * assembling, a month that went unpaid, and a month that was paid.
+ *
+ * Synthesized rather than seeded by whoever is testing, because the app builds
+ * one adapter per request — nothing a suite pushed in beforehand would still
+ * be there when the page rendered. Fixed dates, newest first, and the three
+ * statuses that matter to this list in one fixture: the draft is the row that
+ * must never reach a customer, the open one is what a past-due customer opens
+ * the page to pay, and only the issued two carry a document, because a gateway
+ * has nothing to host for an invoice it has not finalized.
+ */
+const FAKE_INVOICES: readonly Omit<Invoice, "id" | "hostedUrl" | "pdfUrl">[] = [
+  {
+    number: null,
+    createdAt: new Date("2026-07-01T00:00:00Z"),
+    status: "draft",
+    totalMinor: 9_900,
+    currency: DEFAULT_CURRENCY,
+  },
+  {
+    number: "FAKE-0002",
+    createdAt: new Date("2026-06-01T00:00:00Z"),
+    status: "open",
+    totalMinor: 2_900,
+    currency: DEFAULT_CURRENCY,
+  },
+  {
+    number: "FAKE-0001",
+    createdAt: new Date("2026-05-01T00:00:00Z"),
+    status: "paid",
+    totalMinor: 2_900,
+    currency: DEFAULT_CURRENCY,
+  },
+];
 
 export class FakeProvider implements IBillingProvider {
   readonly name = "fake";
@@ -57,6 +95,18 @@ export class FakeProvider implements IBillingProvider {
   async createPortalSession(input: CreatePortalInput): Promise<CreatePortalResult> {
     const returnTo = encodeURIComponent(input.returnUrl);
     return { portalUrl: `https://fake.portal/${input.customerRef}?return_to=${returnTo}` };
+  }
+
+  async listInvoices(input: ListInvoicesInput): Promise<Invoice[]> {
+    // The customer rides in the ids and the links, the way it rides in the
+    // portal url above: that is what lets a test see WHOSE invoices came back,
+    // and reading another workspace's is the one thing this endpoint could do
+    // wrong that nobody would notice.
+    return FAKE_INVOICES.slice(0, input.limit).map((invoice, index) => {
+      const id = `in_fake_${input.customerRef}_${index}`;
+      const hosted = invoice.status === "draft" ? null : `https://fake.invoice/${id}`;
+      return { ...invoice, id, hostedUrl: hosted, pdfUrl: hosted && `${hosted}.pdf` };
+    });
   }
 
   async previewPlanChange(input: PreviewPlanChangeInput): Promise<PlanChangePreview> {
