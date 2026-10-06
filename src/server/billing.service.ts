@@ -25,6 +25,7 @@ import {
   type CurrencyRefusal,
 } from "@/domain/currency";
 import { MIN_SEATS, checkSeats, type SeatRefusal } from "@/domain/seats";
+import { INVOICE_HISTORY_LIMIT, historyOf, type Invoice } from "@/domain/invoice";
 import { portalCustomerFor } from "@/domain/portal";
 import { predecessorsOf, statusForEvent } from "@/domain/subscription";
 import { entitlementsFor, trialDaysFor, type Entitlements } from "@/domain/entitlements";
@@ -136,6 +137,26 @@ export async function startCheckout(
   return { ok: true, subscriptionId: subscription.id, checkoutUrl };
 }
 
+/**
+ * Which customer at the provider this tenant is, by the rule in
+ * domain/portal.ts: the newest one across all their subscription rows,
+ * whatever each row's status.
+ *
+ * Shared by the portal link and the invoice history because both answer that
+ * one question, and two lookups written twice would be two chances to answer
+ * it differently — one page opening the portal of a customer whose invoices
+ * the other is listing. Resolved from the tenant the caller already proved
+ * they may act for and never from the request, which is what keeps the worst
+ * either of them can do their own billing.
+ */
+async function providerCustomerFor(tenantId: string): Promise<string | null> {
+  const subscriptions = await db.subscription.findMany({
+    where: { tenantId },
+    select: { customerRef: true, createdAt: true },
+  });
+  return portalCustomerFor(subscriptions);
+}
+
 export type PortalResult =
   | { ok: true; portalUrl: string }
   /** Nothing to manage: this tenant has no customer with the provider yet. */
@@ -155,12 +176,7 @@ export async function startPortalSession(
   provider: IBillingProvider,
   input: { tenantId: string; appUrl: string },
 ): Promise<PortalResult> {
-  const subscriptions = await db.subscription.findMany({
-    where: { tenantId: input.tenantId },
-    select: { customerRef: true, createdAt: true },
-  });
-
-  const customerRef = portalCustomerFor(subscriptions);
+  const customerRef = await providerCustomerFor(input.tenantId);
   if (!customerRef) return { ok: false, reason: "no_customer" };
 
   const { portalUrl } = await provider.createPortalSession({
@@ -168,6 +184,47 @@ export async function startPortalSession(
     returnUrl: `${input.appUrl}/account`,
   });
   return { ok: true, portalUrl };
+}
+
+export type InvoiceHistoryResult =
+  | { ok: true; invoices: Invoice[] }
+  /** Nothing billed yet: this tenant has no customer with the provider. */
+  | { ok: false; reason: "no_customer" }
+  /** The provider could not be read just now. */
+  | { ok: false; reason: "unavailable" };
+
+/**
+ * The tenant's issued invoices, newest first, read from the provider on this
+ * request and stored nowhere.
+ *
+ * That is the whole point of it: an invoice is the provider's document, it
+ * changes after it is raised, and a copy here would go stale into a second
+ * answer about what a customer was charged. The links come back with it rather
+ * than being minted per click like the portal's — a provider's hosted invoice
+ * and PDF live on the invoice itself, so one read into this page is still the
+ * same document tomorrow.
+ *
+ * A provider that cannot be reached is an outcome rather than a throw. The
+ * account page holds the plan this workspace is on, the change it may make and
+ * the link into the portal; a gateway having a bad minute must cost the list of
+ * documents and not the page around it.
+ */
+export async function listInvoiceHistory(
+  provider: IBillingProvider,
+  input: { tenantId: string },
+): Promise<InvoiceHistoryResult> {
+  const customerRef = await providerCustomerFor(input.tenantId);
+  if (!customerRef) return { ok: false, reason: "no_customer" };
+
+  try {
+    const invoices = await provider.listInvoices({
+      customerRef,
+      limit: INVOICE_HISTORY_LIMIT,
+    });
+    return { ok: true, invoices: historyOf(invoices) };
+  } catch {
+    return { ok: false, reason: "unavailable" };
+  }
 }
 
 export type PlanChangeFailure =

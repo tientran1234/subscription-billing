@@ -5,8 +5,14 @@ import { PLANS, type PlanKey } from "@/domain/entitlements";
 import { resolveTenant } from "@/domain/membership";
 import { QUOTE_TTL_SECONDS } from "@/domain/plan-change";
 import { auth } from "@/lib/auth";
-import { currentPlanFor, entitlementsForTenant } from "@/server/billing.service";
+import { billingProvider } from "@/providers";
+import {
+  currentPlanFor,
+  entitlementsForTenant,
+  listInvoiceHistory,
+} from "@/server/billing.service";
 import { principalFrom, TENANT_HEADER } from "@/server/with-session";
+import { InvoiceHistory } from "./invoice-history";
 import { PlanPicker } from "./plan-picker";
 import { PortalLink } from "./portal-link";
 
@@ -60,6 +66,13 @@ export default async function AccountPage({
     choose: t("changeTo", { plan: PLANS[planKey].name }),
   }));
 
+  // Read from the provider on this request, which is the point: an invoice is
+  // the provider's own document and goes on changing after it is raised, so a
+  // copy here would be a second answer to what this workspace was charged.
+  const invoices = await listInvoiceHistory(billingProvider(), {
+    tenantId: resolved.tenantId,
+  });
+
   return (
     <main>
       <h1>{t("title")}</h1>
@@ -99,6 +112,33 @@ export default async function AccountPage({
           expired: t("changeExpired"),
           changed: t("changeChanged"),
           failed: t("changeFailed"),
+        }}
+      />
+
+      <InvoiceHistory
+        history={invoices}
+        locale={locale}
+        labels={{
+          heading: t("invoices"),
+          empty: t("invoicesEmpty"),
+          unavailable: t("invoicesUnavailable"),
+          note: t("invoicesNote"),
+          date: t("invoicesDate"),
+          number: t("invoicesNumber"),
+          status: t("invoicesStatus"),
+          total: t("invoicesTotal"),
+          document: t("invoicesDocument"),
+          view: t("invoicesView"),
+          pdf: t("invoicesPdf"),
+          // Written out rather than folded over the statuses, so adding one
+          // to the union is a compile error here instead of a blank cell.
+          statuses: {
+            draft: t("invoiceStatus.draft"),
+            open: t("invoiceStatus.open"),
+            paid: t("invoiceStatus.paid"),
+            void: t("invoiceStatus.void"),
+            uncollectible: t("invoiceStatus.uncollectible"),
+          },
         }}
       />
 

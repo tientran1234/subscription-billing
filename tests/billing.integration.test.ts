@@ -12,6 +12,7 @@ import {
   applyEvent,
   confirmPlanChange,
   entitlementsForTenant,
+  listInvoiceHistory,
   previewPlanChange,
   startCheckout,
   startPortalSession,
@@ -533,6 +534,134 @@ describe.skipIf(!hasDatabase)("billing portal", () => {
     expect(result.ok && decodeURIComponent(result.portalUrl)).toContain(
       "https://app.test/account",
     );
+  });
+});
+
+describe.skipIf(!hasDatabase)("invoice history", () => {
+  // The fake gateway puts the customer it was asked about into every invoice
+  // id, the way it does into a portal url, which is what lets these see WHOSE
+  // invoices came back.
+  const provider = new FakeProvider();
+  let tenantId: string;
+
+  const tenant = async (email: string) =>
+    (await db.tenant.create({ data: { email, name: email } })).id;
+
+  beforeEach(async () => {
+    await db.tenant.deleteMany();
+    tenantId = await tenant(`invoices${Date.now()}@example.test`);
+  });
+
+  afterAll(async () => {
+    await db.$disconnect();
+  });
+
+  it("has nothing to list before the first webhook has landed", async () => {
+    await db.subscription.create({ data: { tenantId, planKey: "pro", status: "PENDING" } });
+    expect(await listInvoiceHistory(provider, { tenantId })).toEqual({
+      ok: false,
+      reason: "no_customer",
+    });
+  });
+
+  it("lists the invoices of the customer the tenant is billed to", async () => {
+    await db.subscription.create({
+      data: {
+        tenantId,
+        planKey: "pro",
+        status: "CANCELED",
+        customerRef: "cus_old",
+        createdAt: new Date("2026-01-01"),
+      },
+    });
+    await db.subscription.create({
+      data: {
+        tenantId,
+        planKey: "scale",
+        status: "ACTIVE",
+        customerRef: "cus_current",
+        createdAt: new Date("2026-06-01"),
+      },
+    });
+
+    const result = await listInvoiceHistory(provider, { tenantId });
+    expect(result.ok).toBe(true);
+    // The newest customer, by the same rule the portal link opens for: a
+    // workspace reading one customer's invoices while the portal manages
+    // another's would be two answers to which customer it is.
+    const ids = result.ok ? result.invoices.map((invoice) => invoice.id) : [];
+    expect(ids.length).toBeGreaterThan(0);
+    for (const id of ids) expect(id).toContain("cus_current");
+  });
+
+  it("never lists another tenant's invoices", async () => {
+    const otherId = await tenant(`other${Date.now()}@example.test`);
+    // The other workspace's row is the NEWEST in the table, so a lookup that
+    // forgot to scope by tenant would hand this caller that customer's bills.
+    await db.subscription.create({
+      data: {
+        tenantId,
+        planKey: "pro",
+        status: "ACTIVE",
+        customerRef: "cus_mine",
+        createdAt: new Date("2026-01-01"),
+      },
+    });
+    await db.subscription.create({
+      data: {
+        tenantId: otherId,
+        planKey: "pro",
+        status: "ACTIVE",
+        customerRef: "cus_victim",
+        createdAt: new Date("2026-06-01"),
+      },
+    });
+
+    const result = await listInvoiceHistory(provider, { tenantId });
+    const ids = result.ok ? result.invoices.map((invoice) => invoice.id) : [];
+    expect(ids.length).toBeGreaterThan(0);
+    for (const id of ids) {
+      expect(id).toContain("cus_mine");
+      expect(id).not.toContain("cus_victim");
+    }
+  });
+
+  it("shows the issued invoices newest first and not the draft among them", async () => {
+    await db.subscription.create({
+      data: { tenantId, planKey: "pro", status: "ACTIVE", customerRef: "cus_mine" },
+    });
+
+    const result = await listInvoiceHistory(provider, { tenantId });
+    expect(result.ok).toBe(true);
+    const invoices = result.ok ? result.invoices : [];
+
+    // The gateway hands back the draft it is assembling — the conformance
+    // suite pins that — and this is where it stops: a draft on the page tells
+    // a customer they were charged an amount nobody has asked them for.
+    expect(invoices.some((invoice) => invoice.status === "draft")).toBe(false);
+    expect(invoices.map((invoice) => invoice.status)).toEqual(["open", "paid"]);
+    expect(invoices[0].createdAt.getTime()).toBeGreaterThan(invoices[1].createdAt.getTime());
+  });
+
+  it("says the gateway could not be read rather than that nothing was billed", async () => {
+    class BrokenGateway extends FakeProvider {
+      async listInvoices(): Promise<never> {
+        throw new Error("the gateway timed out");
+      }
+    }
+    await db.subscription.create({
+      data: { tenantId, planKey: "pro", status: "ACTIVE", customerRef: "cus_mine" },
+    });
+
+    // An outcome, not a throw: this list sits on the page holding the plan,
+    // the change the customer may make and the link into the portal, and a
+    // gateway having a bad minute must not take those with it. Reading as "no
+    // invoices" would be worse still — that is what a customer with twelve of
+    // them would then be shown.
+    expect(await listInvoiceHistory(new BrokenGateway(), { tenantId })).toEqual({
+      ok: false,
+      reason: "unavailable",
+    });
   });
 });
 
