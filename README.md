@@ -74,6 +74,33 @@ added by accident. The portal link is minted per click, because Stripe's is
 single-use and expires in minutes. The customer id it opens for is resolved
 from the caller's own tenant, never read off the request.
 
+**An invoice is Stripe's document, not a row here.**
+The account page lists what this workspace has been invoiced, read off the
+gateway as the page loads and copied into nothing. An invoice carries the tax
+Stripe worked out, the card it charged and the PDF a customer's accountant will
+ask for, and it keeps changing after it is raised — a payment retried, an amount
+written off, a credit note against it — so a copy here would be a second answer
+to what somebody was charged, stale from the moment it was written and
+disagreeing with the document the customer can already open. The links are
+rendered with the page, which is the one way this differs from the portal link
+beside it: a portal session is single-use and dead in minutes, while a hosted
+invoice and its PDF live on the invoice itself. What is left to decide is which
+invoices are history, and a draft is not one — it is the invoice the gateway is
+still assembling for a period nobody has been billed for, its total can still
+move, it carries no number and there is no document behind it to open, so
+showing one tells a customer they were charged an amount nobody has asked them
+for. `void` and `uncollectible` do show: an invoice that was cancelled or
+written off is still part of what happened on the account, and leaving it out
+would make a month simply disappear. The rule runs after the read rather than
+being asked of the gateway, because Stripe's list takes exactly one status and
+half a rule in an adapter is a rule the next adapter gets wrong; it costs at
+most one row of the window, since one draft is assembled per subscription at a
+time. The customer it reads for is the one the portal opens for, through the
+same lookup — a page listing one customer's invoices beside a button opening
+another's would be two answers to a question that may only have one — and a
+gateway that cannot be reached says so, because "no invoices" is also exactly
+what a customer holding twelve of them would then be shown.
+
 **A trial is the plan, on a status of its own.**
 `trialDays` on a plan is what a checkout asks the gateway for, read off
 `PLANS` rather than accepted from the route, so nobody can ask for a longer
@@ -309,6 +336,7 @@ src/
     subscription.ts    status enum + legal transitions + event mapping
     entitlements.ts    plans, features, quotas; entitlements as a pure function
     currency.ts        the currencies we sell in, and what a minor unit is worth
+    invoice.ts         what an invoice history is, and what is not in one
     overage.ts         what is owed past the quota, and when a month may be billed
     plan-change.ts     when a plan may move, and how long a quoted price holds
     seats.ts           how many seats we sell, and the floor the ones in use set
@@ -341,8 +369,9 @@ src/
     api/replay           re-apply one provider event by id, for the caller's tenant
     api/usage-report     report a closed month's overage, for a `billing:write` key
     [locale]/            pricing, account and transactions pages, en + vi
-tests/               173 unit + 104 integration against real Postgres
-  e2e/               Playwright: checkout, replay, the cancel drop, the plan change
+tests/               185 unit + 109 integration against real Postgres
+  e2e/               Playwright: checkout, replay, the cancel drop, the plan
+                     change, the invoice list
 ```
 
 ## Run it
@@ -361,8 +390,8 @@ pnpm stripe:listen
 Sign in at `/api/auth/signin` — Auth.js's own page is enough to click a magic
 link. First sign-in provisions a tenant for the address, or joins the tenant
 already seeded with it. `/account` then shows what that tenant may do, the
-plans it can move to, the seats it is paying for, and the link into Stripe's
-portal; the portal needs to be enabled once, in the Stripe dashboard under
+plans it can move to, the seats it is paying for, the invoices it has been
+issued, and the link into Stripe's portal; the portal needs to be enabled once, in the Stripe dashboard under
 Settings → Billing → Customer portal. `/admin` lists that tenant's subscription
 attempts and what each API key spent, a page at a time, and is where an event
 the endpoint missed is replayed by id.
@@ -388,8 +417,14 @@ on every push, and the end-to-end suite beside it in a job with a browser.
   retry settings do, and the cancellation they end in arrives as a webhook like
   any other. The mails are English only — nothing records a tenant's language,
   so their links land on the default locale.
-- **Tax, invoices, receipts.** Stripe Tax and hosted invoices cover this better
-  than an application ever will.
+- **Tax and receipts.** Stripe Tax and Stripe's hosted documents cover this
+  better than an application ever will. The account page lists the invoices and
+  links to each one, but nothing here composes a document, works out what is
+  owed in tax, or sends a receipt.
+- **The whole invoice archive.** The list is the last twelve, which is as far
+  back as anyone reads on the way to downloading one; the rest are in Stripe's
+  portal, which the same page already links to. Paging this would mean paging
+  the gateway, and the page it would end in is the one Stripe already hosts.
 - **Invites and roles.** A membership is provisioned for the address that signs
   in; there is nothing that adds a second person to a tenant, and every member
   can do everything. Seats are sold and billed per person all the same, and the

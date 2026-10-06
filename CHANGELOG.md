@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-06
+
+- Invoice history on the account page, read live from Stripe with hosted PDF links and no local copy of invoice data to drift — the one thing a customer comes to a billing page for was the one thing it did not show, and a copy of an invoice would be a second answer to what they were charged, since an invoice goes on changing after it is raised and the document they can already open is the one that is right.
+
 ## 2026-10-05
 
 - Metered add-on: usage beyond the plan quota billed through Stripe usage records, reported once per period by a durable job that is idempotent per period — a quota that refuses the call is a product decision rather than a billing one, and the job can only be safe to re-run if the month it reports has closed and the month it claims is a primary key.
