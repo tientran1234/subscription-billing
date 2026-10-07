@@ -35,6 +35,8 @@ h1 { font-size: 2rem; margin: 0 0 8px; letter-spacing: -0.02em; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .seats { display: flex; gap: 8px; align-items: center; margin: 0 0 12px; color: var(--muted); }
 .seats input { font: inherit; color: inherit; background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; width: 6rem; }
+.cap { display: flex; gap: 8px; align-items: center; margin: 0 0 12px; color: var(--muted); }
+.cap input { font: inherit; color: inherit; background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; width: 8rem; }
 .quote { border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
 .replay { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 12px; color: var(--muted); }
 .replay input { font: inherit; color: inherit; background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; width: 20rem; max-width: 100%; }

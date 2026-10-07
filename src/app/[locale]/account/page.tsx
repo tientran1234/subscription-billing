@@ -11,10 +11,12 @@ import {
   entitlementsForTenant,
   listInvoiceHistory,
 } from "@/server/billing.service";
+import { spendCapFor } from "@/server/spend-cap";
 import { principalFrom, TENANT_HEADER } from "@/server/with-session";
 import { InvoiceHistory } from "./invoice-history";
 import { PlanPicker } from "./plan-picker";
 import { PortalLink } from "./portal-link";
+import { SpendCapForm } from "./spend-cap-form";
 
 export default async function AccountPage({
   params,
@@ -73,6 +75,11 @@ export default async function AccountPage({
     tenantId: resolved.tenantId,
   });
 
+  // The cap is drawn where it does something, which is where the quota is a
+  // threshold: on a plan that stops at its allowance there is no bill to put a
+  // ceiling under, and a form offering one would be a setting with no effect.
+  const cap = entitlements.meteredOverage ? await spendCapFor(resolved.tenantId) : undefined;
+
   return (
     <main>
       <h1>{t("title")}</h1>
@@ -114,6 +121,25 @@ export default async function AccountPage({
           failed: t("changeFailed"),
         }}
       />
+
+      {cap === undefined ? null : (
+        <SpendCapForm
+          cap={cap}
+          labels={{
+            heading: t("capTitle"),
+            units: t("capUnits"),
+            current: t("capCurrent", { count: cap ?? 0 }),
+            uncapped: t("capUncapped"),
+            save: t("capSave"),
+            saving: t("capSaving"),
+            lift: t("capLift"),
+            saved: t("capSaved"),
+            invalid: t("capInvalid"),
+            failed: t("capFailed"),
+            note: t("capNote"),
+          }}
+        />
+      )}
 
       <InvoiceHistory
         history={invoices}
