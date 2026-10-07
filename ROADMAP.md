@@ -20,3 +20,4 @@ Same rule: one item per change, in order.
 - [x] Multi-currency: prices per currency with the customer's currency chosen at checkout; entitlements and the state machine unchanged, proven by the existing tests running across two currencies.
 - [x] Metered add-on: usage beyond the plan quota billed through Stripe usage records, reported once per period by a durable job that is idempotent per period.
 - [x] Invoice history on the account page, read live from Stripe with hosted PDF links — no local copy of invoice data to drift.
+- [x] Spend cap: a workspace sets a ceiling on how far past its quota it will be billed; the request that would pass it is refused and the month's report is clamped to it, so the cap holds on the invoice and not only on the page.

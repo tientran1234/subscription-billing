@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-07
+
+- Spend cap: a workspace sets a ceiling on how far past its quota it will be billed, the request that would pass it is refused and the month's report is clamped to it — a plan that sells the metered add-on turns its quota into a threshold, so without a ceiling the only limit on an invoice was how often the key was called, and because the counter goes on counting the calls that are refused, the clamp in the report rather than the refusal in the route is what keeps those units off the bill.
+
 ## 2026-10-06
 
 - Invoice history on the account page, read live from Stripe with hosted PDF links and no local copy of invoice data to drift — the one thing a customer comes to a billing page for was the one thing it did not show, and a copy of an invoice would be a second answer to what they were charged, since an invoice goes on changing after it is raised and the document they can already open is the one that is right.

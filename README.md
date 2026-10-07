@@ -215,6 +215,28 @@ defence, and no timestamp at all — a usage record has to be dated inside the
 subscription's current billing period, and the month being reported has by
 definition closed.
 
+**A spend cap is the customer's ceiling, in units, clamped where the money is.**
+A plan that sells the add-on turns its quota into a threshold, and the only
+other limit on a month's invoice is how often the key is called. A cap is the
+workspace's own answer to that, so it is set here rather than at the gateway,
+which is never told it exists. It counts units past the quota and not money:
+units are the figure this application owns — `meter` counts them and the report
+carries them — while a unit's price is Stripe's, so a ceiling in money would
+have to be divided by a figure the customer cannot see and would silently buy
+them fewer messages the day that price moved. Zero is a cap a customer may set,
+and means the quota is a ceiling again; no cap at all is a different answer from
+zero, which is why the column is nullable and why every workspace from before
+caps existed goes on being billed for the add-on it pays for. It lives on the
+tenant rather than the subscription, because the subscription's columns mirror
+what the gateway sold and move on its webhooks, while a cap outlives a workspace
+that cancels and subscribes again — exactly as its usage counters do. The cap
+holds in two places or it holds in neither: `/api/assistant` refuses the request
+that would take the month past it, and the report clamps the figure it sends.
+The clamp is the half that is about money and the half that has to be right,
+because the counter goes on counting calls that are refused — a month that ran
+into its ceiling ends with a counter above it, and reporting `used - limit` would
+invoice for precisely the units the cap was set to prevent.
+
 **Changing plan moves a price, not a status.**
 Upgrading mid-cycle does go through the app, because it is not the thing
 cancelling is. `/api/plan-change` quotes the proration with
@@ -338,6 +360,7 @@ src/
     currency.ts        the currencies we sell in, and what a minor unit is worth
     invoice.ts         what an invoice history is, and what is not in one
     overage.ts         what is owed past the quota, and when a month may be billed
+    spend-cap.ts       the ceiling a workspace sets on what it will be billed
     plan-change.ts     when a plan may move, and how long a quoted price holds
     seats.ts           how many seats we sell, and the floor the ones in use set
     membership.ts      which tenant a signed-in caller may act for
@@ -353,6 +376,7 @@ src/
     billing.service.ts  the only place a subscription status changes
     usage.ts            metered quota
     usage-report.ts     one closed month of overage, reported at most once
+    spend-cap.ts        the tenant's own ceiling, where null is an answer
     dunning.ts          claim the event id, render, send — at most once
     replay.ts           re-fetch one event, re-apply it, record who asked
     mailer.ts           the SMTP seam, so tests can read what was composed
@@ -368,10 +392,11 @@ src/
     api/plan-change      quote a proration, then change plan at the quoted price
     api/replay           re-apply one provider event by id, for the caller's tenant
     api/usage-report     report a closed month's overage, for a `billing:write` key
+    api/spend-cap        read or move the ceiling on this workspace's overage
     [locale]/            pricing, account and transactions pages, en + vi
-tests/               185 unit + 109 integration against real Postgres
+tests/               202 unit + 116 integration against real Postgres
   e2e/               Playwright: checkout, replay, the cancel drop, the plan
-                     change, the invoice list
+                     change, the invoice list, the spend cap
 ```
 
 ## Run it
@@ -390,8 +415,9 @@ pnpm stripe:listen
 Sign in at `/api/auth/signin` — Auth.js's own page is enough to click a magic
 link. First sign-in provisions a tenant for the address, or joins the tenant
 already seeded with it. `/account` then shows what that tenant may do, the
-plans it can move to, the seats it is paying for, the invoices it has been
-issued, and the link into Stripe's portal; the portal needs to be enabled once, in the Stripe dashboard under
+plans it can move to, the seats it is paying for, the ceiling it has set on what
+it will be billed past its quota, the invoices it has been issued, and the link
+into Stripe's portal; the portal needs to be enabled once, in the Stripe dashboard under
 Settings → Billing → Customer portal. `/admin` lists that tenant's subscription
 attempts and what each API key spent, a page at a time, and is where an event
 the endpoint missed is replayed by id.
@@ -444,10 +470,12 @@ on every push, and the end-to-end suite beside it in a job with a browser.
   live subscription from one currency to another, because the gateway will not:
   a customer who wants to be billed in the other one cancels and subscribes
   again. Local payment methods and per-currency tax are Stripe's to configure.
-- **A spend cap.** On a plan that sells the metered add-on the quota is a
-  threshold, and nothing here stops a workspace running up an invoice past it:
-  a ceiling a customer sets for themselves, and the mail that warns them before
-  they reach it, are both worth having and neither is written.
+- **A warning before the cap is reached.** The ceiling itself is here, and the
+  account page is the only place that says where it is: nothing writes to a
+  customer as their usage approaches it, or when a request is first refused for
+  hitting it. A mail would want a claim per period to stay idempotent, the way a
+  dunning notice has one, and a threshold to send it at — neither of which the
+  cap needs in order to hold.
 - **A scheduler.** The overage job is a route a machine credential posts to;
   what calls it once a month is the deployment's cron. A single run across
   every workspace would need an operator credential, which is the same thing
