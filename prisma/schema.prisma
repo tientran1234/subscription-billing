@@ -11,6 +11,15 @@ model Tenant {
   id            String          @id @default(cuid())
   email         String          @unique
   name          String
+  /// The ceiling this workspace set on its metered add-on, in units past the
+  /// plan's quota. Null means uncapped, which is what every workspace from
+  /// before caps existed carries: a cap nobody set is not a cap of zero.
+  ///
+  /// On the tenant rather than the subscription, because the subscription's
+  /// columns mirror what the gateway sold and move on its webhooks, while a cap
+  /// is ours alone — the gateway is never told it — and outlives a workspace
+  /// that cancels and subscribes again, exactly as its usage counters do.
+  overageCap    Int?
   subscriptions Subscription[]
   usage         UsageCounter[]
   apiKeys       ApiKey[]

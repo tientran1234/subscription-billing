@@ -14,6 +14,12 @@
  * for by the plan, so sending the raw counter would charge twice for the same
  * messages.
  *
+ * A quota that is a threshold still has a ceiling where the workspace put one.
+ * A cap belongs to the customer rather than to the plan, so it does not change
+ * what is owed past the quota — it changes how much of that is billable, which
+ * is why it arrives here as a figure to clamp against and lives in
+ * src/domain/spend-cap.ts.
+ *
  * The part worth naming is the period. A month is reported once, because the
  * claim that makes the report idempotent is keyed by the month — so reporting
  * one that is still accruing would spend that single report on a partial
@@ -25,6 +31,7 @@
  */
 
 import type { QuotaKey } from "./entitlements";
+import { billableOverageUnits, type SpendCap } from "./spend-cap";
 
 /**
  * The one quota sold beyond the plan. It is the counter `meter` increments and
@@ -59,7 +66,9 @@ export type OverageRefusal =
   /** This subscription's quota is a ceiling: the calls were refused, not billed. */
   | "not_metered"
   /** Inside the allowance — the plan has already paid for every unit. */
-  | "no_overage";
+  | "no_overage"
+  /** The workspace's own ceiling is zero, so none of the month is billable. */
+  | "capped";
 
 export interface OverageSubject {
   /**
@@ -72,6 +81,12 @@ export interface OverageSubject {
   used: number;
   /** What the plan includes in a month. */
   limit: number;
+  /**
+   * The ceiling this workspace set on what it will be billed past the quota.
+   * Applied here and not only where calls are refused: the counter counted
+   * those refusals too, so this is what decides what the invoice says.
+   */
+  cap: SpendCap;
   /** The month being reported. */
   period: string;
   /** The month the clock is in. */
@@ -85,10 +100,13 @@ export type OverageCheck =
 /**
  * Whether this subscription owes anything for `period`, and how much.
  *
- * The order of the three refusals is deliberate: an open month is refused
- * before anything about the subscription is looked at, because the answer for
- * one is "not yet" rather than "nothing" — a caller that treated a month still
- * running as nothing owing would record it as reported and bill none of it.
+ * The order of the refusals is deliberate: an open month is refused before
+ * anything about the subscription is looked at, because the answer for one is
+ * "not yet" rather than "nothing" — a caller that treated a month still running
+ * as nothing owing would record it as reported and bill none of it. The cap is
+ * applied last, on a figure that is already final, because it is the only one
+ * of them that is a decision the customer made rather than a fact about what
+ * they used.
  */
 export function checkOverage(subject: OverageSubject): OverageCheck {
   if (!isPeriodClosed(subject.period, subject.currentPeriod)) {
@@ -96,7 +114,11 @@ export function checkOverage(subject: OverageSubject): OverageCheck {
   }
   if (!subject.meteredOverage) return { ok: false, reason: "not_metered" };
 
-  const units = overageUnits(subject.used, subject.limit);
-  if (units === 0) return { ok: false, reason: "no_overage" };
+  const used = overageUnits(subject.used, subject.limit);
+  const units = billableOverageUnits(used, subject.cap);
+  // Which nothing it is matters to whoever reads the outcome: a month inside the
+  // allowance never cost anything, while one clamped flat ran into a ceiling its
+  // own customer set, and the usage behind it was refused at the time.
+  if (units === 0) return { ok: false, reason: used > 0 ? "capped" : "no_overage" };
   return { ok: true, units };
 }

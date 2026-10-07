@@ -11,6 +11,7 @@ import { db } from "@/lib/db";
 import { PLANS } from "@/domain/entitlements";
 import { OVERAGE_QUOTA } from "@/domain/overage";
 import { FakeProvider } from "@/providers/fake";
+import { setSpendCap } from "@/server/spend-cap";
 import { meter } from "@/server/usage";
 import { reportOverage } from "@/server/usage-report";
 
@@ -132,6 +133,49 @@ describe.skipIf(!hasDatabase)("reporting a month of overage", () => {
     // Nothing claimed: there is no figure, so there is nothing a second run
     // could send twice.
     expect(await reports()).toHaveLength(0);
+  });
+
+  it("bills the cap, not the counter, for a month that ran past its ceiling", async () => {
+    await subscribe();
+    await setSpendCap(tenantId, 100);
+    // Past the ceiling by a long way. The route refuses these as they are made,
+    // but it refuses them after `meter` has counted them — so the counter the
+    // job reads is above the cap whatever the route did.
+    await used(QUOTA + 900);
+
+    const result = await reportOverage(provider, { tenantId, now: NOW });
+
+    expect(result).toEqual({ ok: true, outcome: "reported", period: CLOSED, units: 100 });
+    // The guarantee, written where the money is: the invoice carries the cap.
+    expect(provider.usageReports).toMatchObject([{ quantity: 100, period: CLOSED }]);
+    expect(await reports()).toMatchObject([{ period: CLOSED, quantity: 100 }]);
+  });
+
+  it("bills nothing at all for a workspace that capped itself at zero", async () => {
+    await subscribe();
+    await setSpendCap(tenantId, 0);
+    await used(QUOTA + 900);
+
+    // A ceiling the customer put back, so there is no figure and nothing is
+    // claimed — the same shape as a month that stayed inside its quota.
+    expect(await reportOverage(provider, { tenantId, now: NOW })).toMatchObject({
+      outcome: "capped",
+      units: 0,
+    });
+    expect(provider.usageReports).toHaveLength(0);
+    expect(await reports()).toHaveLength(0);
+  });
+
+  it("bills the whole figure for a workspace that set no cap", async () => {
+    await subscribe();
+    await used(QUOTA + 500);
+
+    // What every workspace from before caps existed has: a null column is no
+    // ceiling, not a ceiling of zero, so the add-on they pay for still bills.
+    expect(await reportOverage(provider, { tenantId, now: NOW })).toMatchObject({
+      outcome: "reported",
+      units: 500,
+    });
   });
 
   it("bills nothing for a subscription bought without the add-on", async () => {

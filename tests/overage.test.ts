@@ -6,12 +6,14 @@ import {
   isPeriodClosed,
   overageUnits,
 } from "@/domain/overage";
+import { UNCAPPED } from "@/domain/spend-cap";
 
 const subject = (over: Partial<Parameters<typeof checkOverage>[0]> = {}) =>
   checkOverage({
     meteredOverage: true,
     used: 2_500,
     limit: 2_000,
+    cap: UNCAPPED,
     period: "2026-09",
     currentPeriod: "2026-10",
     ...over,
@@ -91,5 +93,39 @@ describe("what a closed month owes", () => {
   it("bills nothing for a month inside the quota", () => {
     expect(subject({ used: 1_999 })).toEqual({ ok: false, reason: "no_overage" });
     expect(subject({ used: 0 })).toEqual({ ok: false, reason: "no_overage" });
+  });
+
+  it("bills the cap rather than the counter for a month that ran past it", () => {
+    // The whole point of the clamp: those calls were refused as they were made,
+    // and an invoice for them would be the cap failing where it matters.
+    expect(subject({ cap: 100 })).toEqual({ ok: true, units: 100 });
+  });
+
+  it("bills the figure itself when it came in under the cap", () => {
+    expect(subject({ cap: 900 })).toEqual({ ok: true, units: 500 });
+    expect(subject({ cap: 500 })).toEqual({ ok: true, units: 500 });
+  });
+
+  it("tells a month capped flat apart from one that never cost anything", () => {
+    // Both owe nothing, and they are not the same thing: one workspace ran up
+    // usage it was refused, the other stayed inside what its plan paid for.
+    expect(subject({ cap: 0 })).toEqual({ ok: false, reason: "capped" });
+    expect(subject({ cap: 0, used: 1_999 })).toEqual({ ok: false, reason: "no_overage" });
+  });
+
+  it("applies the cap after the month has closed, never instead of that", () => {
+    // A cap is the customer's decision about a final figure, so it cannot turn
+    // "not yet" into an answer about the month.
+    expect(subject({ cap: 0, period: "2026-10" })).toEqual({
+      ok: false,
+      reason: "period_open",
+    });
+  });
+
+  it("bills nothing under any cap when the quota is a ceiling", () => {
+    expect(subject({ cap: 100, meteredOverage: false })).toEqual({
+      ok: false,
+      reason: "not_metered",
+    });
   });
 });

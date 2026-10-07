@@ -28,6 +28,7 @@ import type { IBillingProvider } from "@/domain/billing-event";
 import { entitlementsFor, quotaFor } from "@/domain/entitlements";
 import { OVERAGE_QUOTA, checkOverage } from "@/domain/overage";
 import { shiftPeriod } from "@/domain/transactions";
+import { spendCapFor } from "./spend-cap";
 import { currentPeriod } from "./usage";
 
 export interface ReportOverageInput {
@@ -45,6 +46,8 @@ export type OverageOutcome =
   | "duplicate"
   /** The month stayed inside the quota, so there is nothing to bill. */
   | "no_overage"
+  /** The workspace's own ceiling is zero: the usage happened and was refused. */
+  | "capped"
   /** This subscription's quota is a ceiling: the calls were refused, not billed. */
   | "not_metered";
 
@@ -99,6 +102,13 @@ export async function reportOverage(
     // No counter row means the feature was never called in that month.
     used: counter?.used ?? 0,
     limit: quotaFor(entitlements, OVERAGE_QUOTA),
+    // The clamp that decides the invoice. The assistant route refuses calls once
+    // the cap is reached, but it refuses them AFTER `meter` has counted them —
+    // and a race, a cap lowered mid-month, or usage metered by anything else
+    // leaves a counter above the ceiling all the same. Billing `used - limit`
+    // here would charge for the units the cap exists to prevent, so the figure
+    // this job reports is the capped one.
+    cap: await spendCapFor(input.tenantId),
     period,
     currentPeriod: currentPeriod(now),
   });
