@@ -5,7 +5,8 @@
  *   2. entitlement — does the tenant's plan include the feature
  *   3. quota    — is there budget left this month, or is it billable past it,
  *                  and if it is billable, is the workspace still inside the
- *                  ceiling it set for itself
+ *                  ceiling it set for itself — which it is also written to
+ *                  about, once, as that ceiling comes up and again at it
  *
  * All three derive from rows that change on the next webhook or revocation, so
  * a cancelled tenant or a revoked key loses access on the next request — no
@@ -16,9 +17,11 @@ import { canUse, quotaFor } from "@/domain/entitlements";
 import { OVERAGE_QUOTA, overageUnits } from "@/domain/overage";
 import { withinSpendCap } from "@/domain/spend-cap";
 import { entitlementsForTenant } from "@/server/billing.service";
+import { notifyCapWarning } from "@/server/cap-warning";
 import { spendCapFor } from "@/server/spend-cap";
 import { meter } from "@/server/usage";
 import { withApiKey } from "@/server/with-api-key";
+import { env } from "@/lib/env";
 
 export const runtime = "nodejs";
 
@@ -60,6 +63,21 @@ export const POST = withApiKey("assistant:use", async (request, { tenantId }) =>
     // about the refusal would be a call the next cap check cannot see. What
     // keeps it off the invoice is the clamp in the report, not this branch.
     const cap = await spendCapFor(tenantId);
+
+    // Before the refusal, so the mail that says calls are being refused goes
+    // out on the first one rather than on whichever request happens to come
+    // after it. It claims the month and swallows its own failures, so a mail
+    // server that is down cannot turn into an error on a paid call — and the
+    // claim is also what keeps a month at four fifths of its ceiling from being
+    // mailed about once per request. See src/server/cap-warning.ts.
+    await notifyCapWarning({
+      tenantId,
+      units: overage,
+      cap,
+      planKey: entitlements.planKey,
+      appUrl: env().APP_URL,
+    });
+
     if (!withinSpendCap(overage, cap)) {
       return Response.json(
         { error: "spend cap reached", capUnits: cap, ...usage },
