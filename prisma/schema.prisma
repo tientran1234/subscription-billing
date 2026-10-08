@@ -25,6 +25,7 @@ model Tenant {
   apiKeys       ApiKey[]
   members       Membership[]
   dunning       DunningNotice[]
+  capNotices    CapNotice[]
   replays       EventReplay[]
   createdAt     DateTime        @default(now())
 }
@@ -176,6 +177,32 @@ model DunningNotice {
   sentAt          DateTime @default(now())
 
   @@index([tenantId])
+}
+
+/// One row per cap warning that has gone out: at most one of each kind per
+/// workspace per month. Keyed by (tenant, period, kind) rather than by a
+/// provider event id — what earns this mail is a counter of ours crossing a
+/// line rather than a delivery from the gateway, and the month is the only
+/// thing that can make "we have already said this" true. A row here means a
+/// mail was sent: a send that fails releases its claim rather than leave one
+/// behind, the way a dunning notice does.
+model CapNotice {
+  tenantId String
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// The UTC month the usage was counted in, as `meter` buckets it.
+  period   String
+  /// Which line was crossed: approaching the ceiling, or refused at it.
+  kind     String
+  /// Units past the quota when it was sent, and the ceiling they were measured
+  /// against. Both as they were at the time — a cap the workspace raises
+  /// afterwards does not make what was written to them wrong.
+  units    Int
+  cap      Int
+  /// The address it went to, as it was at the time.
+  to       String
+  sentAt   DateTime @default(now())
+
+  @@id([tenantId, period, kind])
 }
 
 /// One row per replay attempt: who asked for which provider event to be
