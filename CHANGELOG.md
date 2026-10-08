@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-08
+
+- Cap warning: a workspace is written to as its spend cap comes up and again on the first call refused at it, one mail of each kind per month and claimed the way a dunning notice is — a ceiling the customer set once and only the account page repeats is a key that stops working mid-month with no warning, and the claim has to be keyed by the month because nothing was delivered to key it by and a counter that has crossed a line stays crossed for every call after it.
+
 ## 2026-10-07
 
 - Spend cap: a workspace sets a ceiling on how far past its quota it will be billed, the request that would pass it is refused and the month's report is clamped to it — a plan that sells the metered add-on turns its quota into a threshold, so without a ceiling the only limit on an invoice was how often the key was called, and because the counter goes on counting the calls that are refused, the clamp in the report rather than the refusal in the route is what keeps those units off the bill.

@@ -273,6 +273,26 @@ already-active subscription all mail nobody. The past-due mail links to the
 account page rather than to a portal link — the provider's are single-use and
 expire in minutes, so one minted at send time would be dead on arrival.
 
+**A cap warning is claimed per month, because there is no event to claim.**
+A ceiling the customer cannot see coming is a key that stops working
+mid-month, so `/api/assistant` writes to them twice: once at four fifths of the
+cap, while the add-on is still serving calls and the ceiling can still be
+moved, and once on the first call it refuses. It is sent from that request and
+not from a job, because the news is that a key has just started failing and a
+nightly sweep would say it a day late — and because the request already holds
+both figures, having metered the call and read the cap to decide whether to
+serve it. The claim is the same shape as a dunning notice's with the one part a
+counter cannot borrow: nothing was delivered, so there is no event id to key
+it by. A counter that has crossed a line stays crossed for every call after it,
+and without a claim a workspace sitting at 81% of its cap would be mailed once
+per request for the rest of the month — so `CapNotice` is keyed by (tenant,
+month, kind), the second request past the line loses the insert, a refused send
+deletes its own row rather than silencing the month, and the month rolling over
+is what makes it news again. The mail is sent before the refusal is returned
+and its failures are swallowed, for the reason the dunning hook swallows
+them: a gate in front of a paid feature must not start refusing calls because
+a mail server is down.
+
 **A replay is the same delivery, asked for a second time.**
 An endpoint that was unreachable for an hour leaves a subscription behind the
 money that paid for it, and Stripe's retries do not come back once they have
@@ -361,6 +381,7 @@ src/
     invoice.ts         what an invoice history is, and what is not in one
     overage.ts         what is owed past the quota, and when a month may be billed
     spend-cap.ts       the ceiling a workspace sets on what it will be billed
+    cap-warning.ts     which line of that ceiling is worth writing to them about
     plan-change.ts     when a plan may move, and how long a quoted price holds
     seats.ts           how many seats we sell, and the floor the ones in use set
     membership.ts      which tenant a signed-in caller may act for
@@ -378,6 +399,7 @@ src/
     usage-report.ts     one closed month of overage, reported at most once
     spend-cap.ts        the tenant's own ceiling, where null is an answer
     dunning.ts          claim the event id, render, send — at most once
+    cap-warning.ts      claim the month, render, send — at most once a month
     replay.ts           re-fetch one event, re-apply it, record who asked
     mailer.ts           the SMTP seam, so tests can read what was composed
     with-session.ts     session → tenant, for human callers
@@ -387,14 +409,15 @@ src/
     api/auth             Auth.js magic-link sign-in
     api/checkout         start a subscription (tenant from the session)
     api/keys             mint / revoke API keys (hash stored, raw shown once)
-    api/assistant        a paid feature: api key → scope → entitlement → quota
+    api/assistant        a paid feature: api key → scope → entitlement → quota,
+                         and the mail when that quota's ceiling comes up
     api/portal           a link into Stripe's billing portal, for the caller's tenant
     api/plan-change      quote a proration, then change plan at the quoted price
     api/replay           re-apply one provider event by id, for the caller's tenant
     api/usage-report     report a closed month's overage, for a `billing:write` key
     api/spend-cap        read or move the ceiling on this workspace's overage
     [locale]/            pricing, account and transactions pages, en + vi
-tests/               202 unit + 116 integration against real Postgres
+tests/               216 unit + 126 integration against real Postgres
   e2e/               Playwright: checkout, replay, the cancel drop, the plan
                      change, the invoice list, the spend cap
 ```
@@ -470,12 +493,15 @@ on every push, and the end-to-end suite beside it in a job with a browser.
   live subscription from one currency to another, because the gateway will not:
   a customer who wants to be billed in the other one cancels and subscribes
   again. Local payment methods and per-currency tax are Stripe's to configure.
-- **A warning before the cap is reached.** The ceiling itself is here, and the
-  account page is the only place that says where it is: nothing writes to a
-  customer as their usage approaches it, or when a request is first refused for
-  hitting it. A mail would want a claim per period to stay idempotent, the way a
-  dunning notice has one, and a threshold to send it at — neither of which the
-  cap needs in order to hold.
+- **A threshold the customer picks, or a word to a workspace with no ceiling.**
+  The warning goes out at four fifths of the cap, which is a constant in
+  `domain/cap-warning.ts` rather than a field beside the cap on the account
+  page: a second number to set is a second number to explain, and the month a
+  customer wanted it at nine tenths they can say so by raising the cap. A
+  workspace that set no cap hears nothing at all, because it has no line to
+  cross — what it would want warning about is the size of the bill, and turning
+  the counter into money needs the gateway's prices, which is the same reason
+  the cap counts units.
 - **A scheduler.** The overage job is a route a machine credential posts to;
   what calls it once a month is the deployment's cron. A single run across
   every workspace would need an operator credential, which is the same thing
