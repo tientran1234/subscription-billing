@@ -23,3 +23,4 @@ Same rule: one item per change, in order.
 - [x] Spend cap: a workspace sets a ceiling on how far past its quota it will be billed; the request that would pass it is refused and the month's report is clamped to it, so the cap holds on the invoice and not only on the page.
 - [x] Cap warning: a workspace is written to as its spend cap comes up and again on the first call refused at it; one mail of each kind per month, claimed the way a dunning notice is.
 - [x] Notices in the workspace's language: a tenant records the locale it is written to in, set on the account page, and the dunning and cap-warning mails are subject-lined, composed and linked in it.
+- [ ] The notice language on the gateway's own customer: setting a workspace's locale writes it across to the provider's customer record, so the receipts and card-expiry warnings the gateway composes itself arrive in the language this application already writes in.

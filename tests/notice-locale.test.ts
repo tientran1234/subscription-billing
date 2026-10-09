@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { noticeLocaleFor, noticePagesFor } from "@/domain/notice-locale";
+import { noticeLocaleFor, noticePagesFor, preferredLocalesFor } from "@/domain/notice-locale";
 import { defaultLocale, locales } from "@/i18n";
 
 describe("which language a notice is written in", () => {
@@ -41,6 +41,27 @@ describe("where a notice sends the reader", () => {
 
       expect(pages.accountUrl).toContain(`/${locale}/`);
       expect(pages.pricingUrl.endsWith(`/${locale}`)).toBe(true);
+    }
+  });
+});
+
+describe("what the gateway is told a workspace reads", () => {
+  it("sends the language the workspace picked, and only that one", () => {
+    // One entry, not a chain. A gateway matches the list in order against the
+    // languages it composes in, so a second entry would be this application
+    // answering for a workspace that has already answered.
+    for (const locale of locales) {
+      expect(preferredLocalesFor(locale)).toEqual([locale]);
+    }
+  });
+
+  it("gives the gateway a language it would compose a receipt in", () => {
+    // The values cross into someone else's column, so they have to be the
+    // plain tags a gateway understands rather than anything of our own.
+    for (const locale of locales) {
+      for (const tag of preferredLocalesFor(locale)) {
+        expect(tag).toMatch(/^[a-z]{2}$/);
+      }
     }
   });
 });

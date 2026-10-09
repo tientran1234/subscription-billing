@@ -159,6 +159,18 @@ export interface ChangePlanInput extends PreviewPlanChangeInput {
   prorationDate: Date;
 }
 
+export interface SetCustomerLocaleInput {
+  /** Provider-side customer id, resolved from the caller's own tenant. */
+  customerRef: string;
+  /**
+   * The languages to record on the customer, most preferred first, by the rule
+   * in src/domain/notice-locale.ts. Plain strings rather than our own `Locale`:
+   * this is the gateway's column, and which of the values it can actually
+   * compose in is the gateway's to answer.
+   */
+  preferredLocales: string[];
+}
+
 export interface IBillingProvider {
   readonly name: string;
   createCheckout(input: CreateCheckoutInput): Promise<CreateCheckoutResult>;

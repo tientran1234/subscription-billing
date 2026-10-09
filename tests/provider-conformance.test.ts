@@ -40,6 +40,10 @@ function contract(name: string, make: () => IBillingProvider) {
     // `listInvoices` only reads, and nothing is kept from what it reads: an
     // invoice history is the gateway's own documents, so a copy of one here
     // would be a second answer to what a customer was charged.
+    // `setCustomerLocale` writes, but writes a preference on the customer and
+    // not a subscription: it tells the gateway which language to compose its
+    // own receipts in, nothing comes back from it, and no status could move
+    // because of it.
     it("exposes no way to change a subscription's status", () => {
       const methods = Object.getOwnPropertyNames(Object.getPrototypeOf(make()))
         .filter((m) => m !== "constructor" && !EXTRAS[name]?.includes(m))
@@ -52,6 +56,7 @@ function contract(name: string, make: () => IBillingProvider) {
         "listInvoices",
         "previewPlanChange",
         "reportUsage",
+        "setCustomerLocale",
         "verifyWebhook",
       ]);
     });

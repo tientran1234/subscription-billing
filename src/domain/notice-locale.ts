@@ -51,3 +51,23 @@ export interface NoticePages {
 export function noticePagesFor(appUrl: string, locale: Locale): NoticePages {
   return { accountUrl: `${appUrl}/${locale}/account`, pricingUrl: `${appUrl}/${locale}` };
 }
+
+/**
+ * What the gateway's own customer record is told the workspace reads.
+ *
+ * A gateway composes mail of its own — the receipt, the card-expiry warning —
+ * from a language on its side, so the column this file resolves decides half
+ * of what a workspace receives and the gateway's copy decides the other half.
+ * This is the one value that crosses.
+ *
+ * A list, because that is the shape a gateway keeps: an ordered preference it
+ * matches against the languages it can compose in. We send exactly one entry.
+ * A fallback chain would be this application inventing a second answer about a
+ * workspace that has given one — and the entry we send is always a choice,
+ * because a locale only crosses when a workspace picks it. A row that has
+ * never said is left alone rather than being sent the default, which on the
+ * gateway's side would be indistinguishable from having asked for it.
+ */
+export function preferredLocalesFor(locale: Locale): string[] {
+  return [locale];
+}
