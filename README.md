@@ -293,6 +293,26 @@ and its failures are swallowed, for the reason the dunning hook swallows
 them: a gate in front of a paid feature must not start refusing calls because
 a mail server is down.
 
+**A notice is written in the language the workspace recorded, not the one a
+page was last rendered in.**
+The pages take their locale from the URL and let next-intl negotiate it against
+the browser. A notice has neither: it is composed by a webhook Stripe sent, or
+by the request that ran a month into its cap, and in both there is no reader
+attached and no address to read a language off. So the language is a column on
+the tenant, set on the account page, and null on it is kept distinct from the
+default — a workspace that has never chosen is not one that chose English, and
+keeping the two apart is what lets a second default be argued about later
+without overruling the rows that asked for the first. A locale we do not
+publish reads as nothing said rather than as an error, because a notice that a
+renewal failed is worth more in the wrong language than not at all. The copy
+comes off the same message files the pages use, through a translator that needs
+no request, so there is one place to write a sentence and the two files have to
+agree key for key or the build says so. The links carry the prefix too: a mail
+written in Vietnamese that opens `/en/account` has given up the half of the
+language the reader actually clicks on. What Stripe sends — the receipts, the
+card-expiry warnings — is composed by Stripe from its own customer record, and
+this column has no say in it.
+
 **A replay is the same delivery, asked for a second time.**
 An endpoint that was unreachable for an hour leaves a subscription behind the
 money that paid for it, and Stripe's retries do not come back once they have
@@ -382,6 +402,7 @@ src/
     overage.ts         what is owed past the quota, and when a month may be billed
     spend-cap.ts       the ceiling a workspace sets on what it will be billed
     cap-warning.ts     which line of that ceiling is worth writing to them about
+    notice-locale.ts   which language a workspace is written to in, and its links
     plan-change.ts     when a plan may move, and how long a quoted price holds
     seats.ts           how many seats we sell, and the floor the ones in use set
     membership.ts      which tenant a signed-in caller may act for
@@ -393,11 +414,13 @@ src/
     stripe.ts      the ONLY file importing `stripe`
     fake.ts        in-memory provider — full flow with no Stripe account
   emails/          react-email templates; HTML and plain text off one tree
+    copy.ts            their words, in the reader's language, off the page messages
   server/
     billing.service.ts  the only place a subscription status changes
     usage.ts            metered quota
     usage-report.ts     one closed month of overage, reported at most once
     spend-cap.ts        the tenant's own ceiling, where null is an answer
+    tenant-locale.ts    the language it reads, where null is a different answer
     dunning.ts          claim the event id, render, send — at most once
     cap-warning.ts      claim the month, render, send — at most once a month
     replay.ts           re-fetch one event, re-apply it, record who asked
@@ -416,8 +439,9 @@ src/
     api/replay           re-apply one provider event by id, for the caller's tenant
     api/usage-report     report a closed month's overage, for a `billing:write` key
     api/spend-cap        read or move the ceiling on this workspace's overage
+    api/locale           read or set the language this workspace is written to in
     [locale]/            pricing, account and transactions pages, en + vi
-tests/               216 unit + 126 integration against real Postgres
+tests/               229 unit + 129 integration against real Postgres
   e2e/               Playwright: checkout, replay, the cancel drop, the plan
                      change, the invoice list, the spend cap
 ```
@@ -439,9 +463,10 @@ Sign in at `/api/auth/signin` — Auth.js's own page is enough to click a magic
 link. First sign-in provisions a tenant for the address, or joins the tenant
 already seeded with it. `/account` then shows what that tenant may do, the
 plans it can move to, the seats it is paying for, the ceiling it has set on what
-it will be billed past its quota, the invoices it has been issued, and the link
-into Stripe's portal; the portal needs to be enabled once, in the Stripe dashboard under
-Settings → Billing → Customer portal. `/admin` lists that tenant's subscription
+it will be billed past its quota, the language it is written to in, the invoices
+it has been issued, and the link into Stripe's portal; the portal needs to be
+enabled once, in the Stripe dashboard under Settings → Billing → Customer
+portal. `/admin` lists that tenant's subscription
 attempts and what each API key spent, a page at a time, and is where an event
 the endpoint missed is replayed by id.
 
@@ -464,8 +489,10 @@ on every push, and the end-to-end suite beside it in a job with a browser.
 - **A dunning schedule.** Entering `PAST_DUE` and leaving it now mails the
   customer, but nothing here decides when the retries run out: Stripe's own
   retry settings do, and the cancellation they end in arrives as a webhook like
-  any other. The mails are English only — nothing records a tenant's language,
-  so their links land on the default locale.
+  any other. The mails are composed in the language the workspace recorded, but
+  what Stripe itself sends — the receipt, the card-expiry warning — is composed
+  by Stripe from the language on its own customer record, and nothing here
+  writes this column across to it.
 - **Tax and receipts.** Stripe Tax and Stripe's hosted documents cover this
   better than an application ever will. The account page lists the invoices and
   links to each one, but nothing here composes a document, works out what is

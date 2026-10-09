@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-09
+
+- Notices in the workspace's language: a tenant records the locale it is written to in, set on the account page, and the dunning and cap-warning mails are subject-lined, composed and linked in it — a notice is the one thing here read away from the app, composed by a webhook or by the request that ran a month into its cap, so there is no URL and no reader to negotiate a language from and the workspace's own answer has to be a column; null on it is kept apart from the default because a workspace that never chose is not one that chose English, and the link carries the prefix too, since a mail written in Vietnamese that opens /en/account has given up the half of the language the reader clicks on.
+
 ## 2026-10-08
 
 - Cap warning: a workspace is written to as its spend cap comes up and again on the first call refused at it, one mail of each kind per month and claimed the way a dunning notice is — a ceiling the customer set once and only the account page repeats is a key that stops working mid-month with no warning, and the claim has to be keyed by the month because nothing was delivered to key it by and a counter that has crossed a line stays crossed for every call after it.
