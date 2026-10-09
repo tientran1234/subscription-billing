@@ -4,6 +4,7 @@ import { noticeForStatus } from "@/domain/dunning";
 import { renderDunningEmail } from "@/emails/render";
 
 const props = {
+  locale: "en" as const,
   tenantName: "Acme",
   planName: "Pro",
   accountUrl: "https://billing.example.test/en/account",
@@ -69,5 +70,53 @@ describe("dunning templates", () => {
 
     expect(mail.html).toContain("Your Pro plan has ended");
     expect(mail.text).not.toContain("Your Pro plan has ended");
+  });
+});
+
+describe("the language a notice is written in", () => {
+  // The guarantee the item exists for. Asserted on the copy and not on a
+  // locale argument coming back out, because what a reader gets is the
+  // sentences: a template that took the language and ignored it would pass a
+  // test that only checked what it was handed.
+  const vi = {
+    locale: "vi" as const,
+    tenantName: "Acme",
+    planName: "Pro",
+    accountUrl: "https://billing.example.test/vi/account",
+    pricingUrl: "https://billing.example.test/vi",
+  };
+
+  it("writes to a Vietnamese workspace in Vietnamese", async () => {
+    const mail = await renderDunningEmail("past_due", vi);
+
+    expect(mail.subject).toBe("Chúng tôi chưa thu được khoản thanh toán của bạn");
+    expect(mail.html).toContain("Ngân hàng phát hành thẻ");
+    expect(mail.text).toContain("Chưa có gì bị tắt");
+  });
+
+  it("keeps the subject in the same language as the body", async () => {
+    // One section of copy per notice, so a subject line cannot come from the
+    // default while the sentences under it come from somewhere else.
+    for (const kind of ["past_due", "goodbye"] as const) {
+      const [english, vietnamese] = await Promise.all([
+        renderDunningEmail(kind, props),
+        renderDunningEmail(kind, vi),
+      ]);
+
+      expect(vietnamese.subject).not.toBe(english.subject);
+      expect(vietnamese.html).not.toBe(english.html);
+    }
+  });
+
+  it("marks the language on the document, so a reader is read to in it", async () => {
+    const mail = await renderDunningEmail("goodbye", vi);
+    expect(mail.html).toContain('lang="vi"');
+  });
+
+  it("links a reader into the pages of the language they are written in", async () => {
+    const mail = await renderDunningEmail("goodbye", vi);
+
+    expect(mail.html).toContain("https://billing.example.test/vi");
+    expect(mail.html).not.toContain("/en/");
   });
 });

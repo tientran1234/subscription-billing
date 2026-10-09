@@ -143,6 +143,18 @@ describe.skipIf(!hasDatabase)("spend cap warnings", () => {
     expect(notice).toMatchObject({ period: PERIOD, kind: "approaching", units: 400, cap: 500 });
   });
 
+  it("warns a workspace in the language it recorded", async () => {
+    // The end of the wire the unit tests cannot reach: the column on the
+    // tenant is what this sender reads too, and the link goes with it.
+    await db.tenant.update({ where: { id: tenantId }, data: { locale: "vi" } });
+
+    expect(await warn(400, 500)).toBe("sent");
+
+    const mail = mailer.sent[0];
+    expect(mail.subject).toBe("Bạn đã gần đạt giới hạn chi tiêu");
+    expect(mail.html).toContain(`${APP_URL}/vi/account`);
+  });
+
   it("does not write to a workspace that is not there", async () => {
     await db.tenant.delete({ where: { id: tenantId } });
 

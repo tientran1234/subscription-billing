@@ -131,5 +131,39 @@
     "noTenant": "This account does not belong to a workspace yet.",
     "ambiguous": "This account belongs to several workspaces, and choosing between them is not built yet.",
     "backToAccount": "Back to account"
+  },
+  "emails": {
+    "pastDue": {
+      "subject": "We could not take your payment",
+      "preview": "Update your card to keep {plan}",
+      "heading": "We could not take your payment",
+      "body": "Hi {tenant}, the latest payment for your {plan} plan did not go through. Your card issuer usually gives no reason, and an expired card is the common one.",
+      "cta": "Nothing has been switched off. {plan} keeps working while we retry, so there is time to update the card:",
+      "footer": "If you have already updated it, the next retry will settle and you can ignore this."
+    },
+    "goodbye": {
+      "subject": "Your subscription has ended",
+      "preview": "Your {plan} plan has ended",
+      "heading": "Your subscription has ended",
+      "body": "Hi {tenant}, your {plan} plan has ended and you will not be billed for it again. Your account is still here, now on the Free plan.",
+      "cta": "Whenever you want {plan} back, it starts again here:",
+      "footer": "Thanks for the time you spent with us."
+    },
+    "capApproaching": {
+      "subject": "You are close to your spend cap",
+      "preview": "{units} of your {cap} extra messages are gone",
+      "heading": "You are close to your spend cap",
+      "body": "Hi {tenant}, this month has used {units} of the {cap} messages past your {plan} allowance that you agreed to be billed for.",
+      "cta": "Nothing has stopped. When the {cap} are gone, further calls are refused until the allowance resets at the start of next month — so if this month needs more than that, the ceiling is yours to raise:",
+      "footer": "You will not be billed past the cap, whether or not you move it."
+    },
+    "capReached": {
+      "subject": "Your spend cap has paused further usage",
+      "preview": "Calls past your {plan} allowance are being refused",
+      "heading": "Your spend cap has paused further usage",
+      "body": "Hi {tenant}, this month has reached the cap of {cap} messages past your {plan} allowance, and calls beyond it are now being refused.",
+      "cta": "Everything inside the {plan} plan itself goes on working. To carry on past the allowance this month, raise the ceiling here:",
+      "footer": "Or leave it where it is: the allowance resets at the start of next month, and you will be billed for {cap} and no more."
+    }
   }
 }

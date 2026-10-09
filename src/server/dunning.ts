@@ -19,8 +19,8 @@ import { db } from "@/lib/db";
 import type { BillingEvent } from "@/domain/billing-event";
 import { noticeForStatus } from "@/domain/dunning";
 import { isPlanKey, PLANS } from "@/domain/entitlements";
+import { noticeLocaleFor, noticePagesFor } from "@/domain/notice-locale";
 import { statusForEvent } from "@/domain/subscription";
-import { defaultLocale } from "@/i18n";
 import { renderDunningEmail } from "@/emails/render";
 import { type ApplyOutcome, subscriptionForEvent } from "./billing.service";
 import { smtpMailer, type Mailer } from "./mailer";
@@ -85,14 +85,15 @@ export async function notifyDunning(input: NotifyDunningInput): Promise<DunningO
   }
 
   const plan = isPlanKey(subscription.planKey) ? PLANS[subscription.planKey] : PLANS.free;
+  // The language the workspace recorded, which is also the prefix its links
+  // carry: a notice that reads in one language and lands on pages in another
+  // has only done half the job.
+  const locale = noticeLocaleFor(tenant.locale);
   const message = await renderDunningEmail(kind, {
+    locale,
     tenantName: tenant.name,
     planName: plan.name,
-    // The pages are locale-prefixed and nothing records a tenant's language,
-    // so mail links land on the default locale and next-intl takes it from
-    // there if the reader has a preference.
-    accountUrl: `${input.appUrl}/${defaultLocale}/account`,
-    pricingUrl: `${input.appUrl}/${defaultLocale}`,
+    ...noticePagesFor(input.appUrl, locale),
   });
 
   try {

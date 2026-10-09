@@ -6,6 +6,7 @@
  * the level all of them render the same way.
  */
 import type { CSSProperties, ReactNode } from "react";
+import type { Locale } from "@/i18n";
 
 const body: CSSProperties = {
   margin: 0,
@@ -45,14 +46,20 @@ const preheader: CSSProperties = {
 export { heading as emailHeading, paragraph as emailParagraph, footer as emailFooter };
 
 export interface EmailShellProps {
+  /**
+   * The language the notice is written in. On the element rather than left at
+   * English, because it is what tells a screen reader which voice to read the
+   * mail in and a client which dictionary to stop underlining it against.
+   */
+  locale: Locale;
   /** The one-line summary inbox lists show next to the subject. */
   preview: string;
   children: ReactNode;
 }
 
-export function EmailShell({ preview, children }: EmailShellProps) {
+export function EmailShell({ locale, preview, children }: EmailShellProps) {
   return (
-    <html lang="en">
+    <html lang={locale}>
       <head>
         <meta charSet="utf-8" />
         <meta name="color-scheme" content="light" />

@@ -10,34 +10,35 @@
  * The tone assumes nothing is lost yet, because nothing is — PAST_DUE keeps
  * paid access on purpose (see `entitlementsFor`).
  */
+import type { Locale } from "@/i18n";
+import type { Copy } from "./copy";
 import { EmailShell, emailFooter, emailHeading, emailParagraph } from "./layout";
 
-export const PAST_DUE_SUBJECT = "We could not take your payment";
-
 export interface PastDueEmailProps {
+  locale: Locale;
+  /** This notice's copy in that language, scoped by the renderer. */
+  copy: Copy;
   tenantName: string;
   planName: string;
   accountUrl: string;
 }
 
-export function PastDueEmail({ tenantName, planName, accountUrl }: PastDueEmailProps) {
+export function PastDueEmail({
+  locale,
+  copy,
+  tenantName,
+  planName,
+  accountUrl,
+}: PastDueEmailProps) {
   return (
-    <EmailShell preview={`Update your card to keep ${planName}`}>
-      <h1 style={emailHeading}>We could not take your payment</h1>
-      <p style={emailParagraph}>
-        Hi {tenantName}, the latest payment for your {planName} plan did not go through. Your
-        card issuer usually gives no reason, and an expired card is the common one.
-      </p>
-      <p style={emailParagraph}>
-        Nothing has been switched off. {planName} keeps working while we retry, so there is
-        time to update the card:
-      </p>
+    <EmailShell locale={locale} preview={copy("preview", { plan: planName })}>
+      <h1 style={emailHeading}>{copy("heading")}</h1>
+      <p style={emailParagraph}>{copy("body", { tenant: tenantName, plan: planName })}</p>
+      <p style={emailParagraph}>{copy("cta", { plan: planName })}</p>
       <p style={emailParagraph}>
         <a href={accountUrl}>{accountUrl}</a>
       </p>
-      <p style={emailFooter}>
-        If you have already updated it, the next retry will settle and you can ignore this.
-      </p>
+      <p style={emailFooter}>{copy("footer")}</p>
     </EmailShell>
   );
 }

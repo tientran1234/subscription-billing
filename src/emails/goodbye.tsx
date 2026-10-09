@@ -6,29 +6,35 @@
  * on read, so the drop to Free happened on the request after the webhook. The
  * mail says so rather than implying a grace period that does not exist.
  */
+import type { Locale } from "@/i18n";
+import type { Copy } from "./copy";
 import { EmailShell, emailFooter, emailHeading, emailParagraph } from "./layout";
 
-export const GOODBYE_SUBJECT = "Your subscription has ended";
-
 export interface GoodbyeEmailProps {
+  locale: Locale;
+  /** This notice's copy in that language, scoped by the renderer. */
+  copy: Copy;
   tenantName: string;
   planName: string;
   pricingUrl: string;
 }
 
-export function GoodbyeEmail({ tenantName, planName, pricingUrl }: GoodbyeEmailProps) {
+export function GoodbyeEmail({
+  locale,
+  copy,
+  tenantName,
+  planName,
+  pricingUrl,
+}: GoodbyeEmailProps) {
   return (
-    <EmailShell preview={`Your ${planName} plan has ended`}>
-      <h1 style={emailHeading}>Your subscription has ended</h1>
-      <p style={emailParagraph}>
-        Hi {tenantName}, your {planName} plan has ended and you will not be billed for it
-        again. Your account is still here, now on the Free plan.
-      </p>
-      <p style={emailParagraph}>Whenever you want {planName} back, it starts again here:</p>
+    <EmailShell locale={locale} preview={copy("preview", { plan: planName })}>
+      <h1 style={emailHeading}>{copy("heading")}</h1>
+      <p style={emailParagraph}>{copy("body", { tenant: tenantName, plan: planName })}</p>
+      <p style={emailParagraph}>{copy("cta", { plan: planName })}</p>
       <p style={emailParagraph}>
         <a href={pricingUrl}>{pricingUrl}</a>
       </p>
-      <p style={emailFooter}>Thanks for the time you spent with us.</p>
+      <p style={emailFooter}>{copy("footer")}</p>
     </EmailShell>
   );
 }

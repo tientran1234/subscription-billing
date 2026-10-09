@@ -173,6 +173,32 @@ describe.skipIf(!hasDatabase)("dunning notices", () => {
     expect(mailer.sent).toHaveLength(1);
   });
 
+  it("writes to a workspace in the language it recorded", async () => {
+    // The end of the wire the unit tests cannot reach: that the column on the
+    // tenant is what the sender reads, and that the link goes with it.
+    await db.tenant.update({ where: { id: tenantId }, data: { locale: "vi" } });
+
+    await deliver(event({ providerEventId: "evt_1", type: "payment_failed" }));
+
+    const mail = only(mailer.sent);
+    expect(mail.subject).toBe("Chúng tôi chưa thu được khoản thanh toán của bạn");
+    expect(mail.html).toContain(`${APP_URL}/vi/account`);
+    expect(mail.html).not.toContain(`${APP_URL}/en`);
+  });
+
+  it("writes in the default language to a workspace whose language we do not publish", async () => {
+    // A locale we have since dropped, or a column edited by hand. The notice
+    // still goes out, which is the rule in domain/notice-locale.ts holding at
+    // the one place that could have passed the column straight through.
+    await db.tenant.update({ where: { id: tenantId }, data: { locale: "de" } });
+
+    await deliver(event({ providerEventId: "evt_1", type: "payment_failed" }));
+
+    const mail = only(mailer.sent);
+    expect(mail.subject).toBe("We could not take your payment");
+    expect(mail.html).toContain(`${APP_URL}/en/account`);
+  });
+
   it("records who was written to, and about what", async () => {
     await deliver(event({ providerEventId: "evt_1", type: "payment_failed" }));
 

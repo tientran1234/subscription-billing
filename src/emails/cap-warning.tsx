@@ -12,13 +12,14 @@
  * month has run, and where the ceiling is — because a warning that says only
  * "nearly" leaves the reader to go and look up the number it was talking about.
  */
+import type { Locale } from "@/i18n";
+import type { Copy } from "./copy";
 import { EmailShell, emailFooter, emailHeading, emailParagraph } from "./layout";
 
-export const CAP_APPROACHING_SUBJECT = "You are close to your spend cap";
-
-export const CAP_REACHED_SUBJECT = "Your spend cap has paused further usage";
-
 export interface CapWarningEmailProps {
+  locale: Locale;
+  /** This notice's copy in that language, scoped by the renderer. */
+  copy: Copy;
   tenantName: string;
   planName: string;
   /** Units past the plan's quota so far this month. */
@@ -30,6 +31,8 @@ export interface CapWarningEmailProps {
 }
 
 export function CapApproachingEmail({
+  locale,
+  copy,
   tenantName,
   planName,
   units,
@@ -37,23 +40,16 @@ export function CapApproachingEmail({
   accountUrl,
 }: CapWarningEmailProps) {
   return (
-    <EmailShell preview={`${units} of your ${cap} extra messages are gone`}>
-      <h1 style={emailHeading}>You are close to your spend cap</h1>
+    <EmailShell locale={locale} preview={copy("preview", { units, cap })}>
+      <h1 style={emailHeading}>{copy("heading")}</h1>
       <p style={emailParagraph}>
-        Hi {tenantName}, this month has used {units} of the {cap} messages past your{" "}
-        {planName} allowance that you agreed to be billed for.
+        {copy("body", { tenant: tenantName, plan: planName, units, cap })}
       </p>
-      <p style={emailParagraph}>
-        Nothing has stopped. When the {cap} are gone, further calls are refused until the
-        allowance resets at the start of next month — so if this month needs more than that,
-        the ceiling is yours to raise:
-      </p>
+      <p style={emailParagraph}>{copy("cta", { cap })}</p>
       <p style={emailParagraph}>
         <a href={accountUrl}>{accountUrl}</a>
       </p>
-      <p style={emailFooter}>
-        You will not be billed past the cap, whether or not you move it.
-      </p>
+      <p style={emailFooter}>{copy("footer")}</p>
     </EmailShell>
   );
 }
@@ -63,32 +59,26 @@ export function CapApproachingEmail({
  * counter is a unit or two above the ceiling — the call is metered before it is
  * refused, which is what lets the next cap check see it — and only the cap will
  * ever be billed, so quoting the larger figure would invite a question about a
- * number that appears on no invoice.
+ * number that appears on no invoice. That is why `units` reaches the copy of
+ * the warning above and not this one.
  */
 export function CapReachedEmail({
+  locale,
+  copy,
   tenantName,
   planName,
   cap,
   accountUrl,
 }: CapWarningEmailProps) {
   return (
-    <EmailShell preview={`Calls past your ${planName} allowance are being refused`}>
-      <h1 style={emailHeading}>Your spend cap has paused further usage</h1>
-      <p style={emailParagraph}>
-        Hi {tenantName}, this month has reached the cap of {cap} messages past your{" "}
-        {planName} allowance, and calls beyond it are now being refused.
-      </p>
-      <p style={emailParagraph}>
-        Everything inside the {planName} plan itself goes on working. To carry on past the
-        allowance this month, raise the ceiling here:
-      </p>
+    <EmailShell locale={locale} preview={copy("preview", { plan: planName })}>
+      <h1 style={emailHeading}>{copy("heading")}</h1>
+      <p style={emailParagraph}>{copy("body", { tenant: tenantName, plan: planName, cap })}</p>
+      <p style={emailParagraph}>{copy("cta", { plan: planName })}</p>
       <p style={emailParagraph}>
         <a href={accountUrl}>{accountUrl}</a>
       </p>
-      <p style={emailFooter}>
-        Or leave it where it is: the allowance resets at the start of next month, and you
-        will be billed for {cap} and no more.
-      </p>
+      <p style={emailFooter}>{copy("footer", { cap })}</p>
     </EmailShell>
   );
 }

@@ -131,5 +131,39 @@
     "noTenant": "Tài khoản này chưa thuộc workspace nào.",
     "ambiguous": "Tài khoản này thuộc nhiều workspace, và phần chọn workspace chưa được xây dựng.",
     "backToAccount": "Quay lại tài khoản"
+  },
+  "emails": {
+    "pastDue": {
+      "subject": "Chúng tôi chưa thu được khoản thanh toán của bạn",
+      "preview": "Cập nhật thẻ để tiếp tục dùng {plan}",
+      "heading": "Chúng tôi chưa thu được khoản thanh toán của bạn",
+      "body": "Chào {tenant}, khoản thanh toán mới nhất cho gói {plan} của bạn không thành công. Ngân hàng phát hành thẻ thường không nêu lý do, và thẻ hết hạn là nguyên nhân phổ biến nhất.",
+      "cta": "Chưa có gì bị tắt. Gói {plan} vẫn hoạt động trong lúc chúng tôi thử lại, nên bạn còn thời gian cập nhật thẻ:",
+      "footer": "Nếu bạn đã cập nhật rồi, lần thử lại tiếp theo sẽ thành công và có thể bỏ qua thư này."
+    },
+    "goodbye": {
+      "subject": "Gói đăng ký của bạn đã kết thúc",
+      "preview": "Gói {plan} của bạn đã kết thúc",
+      "heading": "Gói đăng ký của bạn đã kết thúc",
+      "body": "Chào {tenant}, gói {plan} của bạn đã kết thúc và sẽ không bị tính phí nữa. Tài khoản của bạn vẫn còn, hiện ở gói Free.",
+      "cta": "Khi nào bạn muốn dùng lại {plan}, hãy bắt đầu ở đây:",
+      "footer": "Cảm ơn bạn đã đồng hành cùng chúng tôi."
+    },
+    "capApproaching": {
+      "subject": "Bạn đã gần đạt giới hạn chi tiêu",
+      "preview": "Đã dùng {units} trong {cap} tin nhắn thêm của bạn",
+      "heading": "Bạn đã gần đạt giới hạn chi tiêu",
+      "body": "Chào {tenant}, tháng này đã dùng {units} trong {cap} tin nhắn vượt định mức của gói {plan} mà bạn đồng ý trả thêm.",
+      "cta": "Chưa có gì bị dứng. Khi dùng hết {cap} tin nhắn đó, các yêu cầu tiếp theo sẽ bị từ chối cho đến khi định mức được đặt lại vào đầu tháng sau — nếu tháng này cần nhiều hơn, bạn có thể tự nâng mức trần:",
+      "footer": "Bạn sẽ không bị tính phí vượt giới hạn, dù có nâng mức trần hay không."
+    },
+    "capReached": {
+      "subject": "Giới hạn chi tiêu đã tạm dứng việc sử dụng thêm",
+      "preview": "Các yêu cầu vượt định mức gói {plan} đang bị từ chối",
+      "heading": "Giới hạn chi tiêu đã tạm dứng việc sử dụng thêm",
+      "body": "Chào {tenant}, tháng này đã đạt giới hạn {cap} tin nhắn vượt định mức của gói {plan}, và các yêu cầu vượt quá đang bị từ chối.",
+      "cta": "Mọi thứ trong gói {plan} vẫn hoạt động bình thường. Để tiếp tục dùng vượt định mức trong tháng này, hãy nâng mức trần ở đây:",
+      "footer": "Hoặc cứ để nguyên: định mức sẽ được đặt lại vào đầu tháng sau, và bạn chỉ bị tính phí cho {cap} và không hơn."
+    }
   }
 }

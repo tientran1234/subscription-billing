@@ -23,8 +23,8 @@ import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { capWarningFor } from "@/domain/cap-warning";
 import { isPlanKey, PLANS } from "@/domain/entitlements";
+import { noticeLocaleFor, noticePagesFor } from "@/domain/notice-locale";
 import { UNCAPPED, type SpendCap } from "@/domain/spend-cap";
-import { defaultLocale } from "@/i18n";
 import { renderCapWarningEmail } from "@/emails/render";
 import { smtpMailer, type Mailer } from "./mailer";
 import { currentPeriod } from "./usage";
@@ -104,14 +104,16 @@ export async function notifyCapWarning(
   }
 
   const plan = isPlanKey(input.planKey) ? PLANS[input.planKey] : PLANS.free;
+  // The workspace's own language, and the prefix its link carries with it, as a
+  // dunning notice's does.
+  const locale = noticeLocaleFor(tenant.locale);
   const message = await renderCapWarningEmail(kind, {
+    locale,
     tenantName: tenant.name,
     planName: plan.name,
     units: input.units,
     cap,
-    // The pages are locale-prefixed and nothing records a tenant's language, so
-    // the link lands on the default locale, as a dunning notice's does.
-    accountUrl: `${input.appUrl}/${defaultLocale}/account`,
+    accountUrl: noticePagesFor(input.appUrl, locale).accountUrl,
   });
 
   try {

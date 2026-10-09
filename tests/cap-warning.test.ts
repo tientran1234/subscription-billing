@@ -59,6 +59,7 @@ describe("which warning a month has earned", () => {
 });
 
 const props = {
+  locale: "en" as const,
   tenantName: "Acme",
   planName: "Pro",
   units: 410,
@@ -119,5 +120,47 @@ describe("cap warning templates", () => {
 
     expect(mail.html).toContain("Calls past your Pro allowance are being refused");
     expect(mail.text).not.toContain("Calls past your Pro allowance are being refused");
+  });
+});
+
+describe("the language a cap warning is written in", () => {
+  const vi = { ...props, locale: "vi" as const, accountUrl: "https://billing.example.test/vi/account" };
+
+  it("warns a Vietnamese workspace in Vietnamese, with both figures intact", async () => {
+    const mail = await renderCapWarningEmail("approaching", vi);
+
+    expect(mail.subject).toBe("Bạn đã gần đạt giới hạn chi tiêu");
+    expect(mail.html).toContain("410");
+    expect(mail.html).toContain("500");
+    expect(mail.html).toContain('lang="vi"');
+  });
+
+  it("still quotes the cap and not the counter, in either language", async () => {
+    // The rule about which figure a reached warning names is about the invoice,
+    // not about English: a translation that reached for `units` because the
+    // sentence read better would promise a number no invoice carries.
+    const mail = await renderCapWarningEmail("reached", { ...vi, units: 512 });
+
+    expect(mail.html).toContain("500");
+    expect(mail.html).not.toContain("512");
+  });
+
+  it("keeps the subject in the same language as the body", async () => {
+    for (const kind of ["approaching", "reached"] as const) {
+      const [english, vietnamese] = await Promise.all([
+        renderCapWarningEmail(kind, props),
+        renderCapWarningEmail(kind, vi),
+      ]);
+
+      expect(vietnamese.subject).not.toBe(english.subject);
+      expect(vietnamese.html).not.toBe(english.html);
+    }
+  });
+
+  it("links a reader into the pages of the language they are written in", async () => {
+    const mail = await renderCapWarningEmail("reached", vi);
+
+    expect(mail.html).toContain("https://billing.example.test/vi/account");
+    expect(mail.html).not.toContain("/en/");
   });
 });
