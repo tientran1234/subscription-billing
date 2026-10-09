@@ -2,6 +2,7 @@
 
 ## 2026-10-09
 
+- The notice language on the gateway's own customer: setting a workspace's locale writes it across to the provider's customer record, so the receipts and card-expiry warnings the gateway composes itself arrive in the language this application already writes in — the column decided only half of what a workspace received, and a product that mails in Vietnamese while its gateway mails in English about the same failed renewal is one the customer has to read twice; the column is written first and the gateway asked second, because the column is ours to guarantee and its copy is ours only to ask for, so a gateway having a bad minute is reported beside the saved choice rather than costing the customer the choice they just made.
 - Notices in the workspace's language: a tenant records the locale it is written to in, set on the account page, and the dunning and cap-warning mails are subject-lined, composed and linked in it — a notice is the one thing here read away from the app, composed by a webhook or by the request that ran a month into its cap, so there is no URL and no reader to negotiate a language from and the workspace's own answer has to be a column; null on it is kept apart from the default because a workspace that never chose is not one that chose English, and the link carries the prefix too, since a mail written in Vietnamese that opens /en/account has given up the half of the language the reader clicks on.
 
 ## 2026-10-08

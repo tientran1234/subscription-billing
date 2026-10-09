@@ -310,8 +310,25 @@ no request, so there is one place to write a sentence and the two files have to
 agree key for key or the build says so. The links carry the prefix too: a mail
 written in Vietnamese that opens `/en/account` has given up the half of the
 language the reader actually clicks on. What Stripe sends — the receipts, the
-card-expiry warnings — is composed by Stripe from its own customer record, and
-this column has no say in it.
+card-expiry warnings — is composed by Stripe from its own customer record, so
+choosing a language writes it across to that record as well, and a workspace
+stops being addressed in two languages by the same product.
+
+**The column is written before the gateway is told, and the gateway being down
+does not cost the customer their choice.**
+Those are two halves of one answer with different guarantees behind them: the
+column is ours and decides every notice this application composes, and the
+gateway's copy is a row at Stripe we can only ask for. So `/api/locale` writes
+its own column first and asks second, reports what the gateway did beside the
+saved choice rather than instead of it, and a 200 means the language is in
+force for the next notice we compose whatever Stripe said. Making the request
+fail on the gateway's answer would pay for the half we do not own with the half
+we do — the customer would click again to find out, and the column they had
+already set would be the thing in doubt. A workspace that has never subscribed
+has no customer at the gateway to write to and is not an error either; the
+checkout it eventually opens carries the language. `preferred_locales` only
+affects what Stripe composes next, so the next change asks again and nothing
+has to be reconciled.
 
 **A replay is the same delivery, asked for a second time.**
 An endpoint that was unreachable for an hour leaves a subscription behind the
@@ -402,7 +419,8 @@ src/
     overage.ts         what is owed past the quota, and when a month may be billed
     spend-cap.ts       the ceiling a workspace sets on what it will be billed
     cap-warning.ts     which line of that ceiling is worth writing to them about
-    notice-locale.ts   which language a workspace is written to in, and its links
+    notice-locale.ts   which language a workspace is written to in, its links,
+                       and what the gateway's own customer is told
     plan-change.ts     when a plan may move, and how long a quoted price holds
     seats.ts           how many seats we sell, and the floor the ones in use set
     membership.ts      which tenant a signed-in caller may act for
@@ -439,9 +457,10 @@ src/
     api/replay           re-apply one provider event by id, for the caller's tenant
     api/usage-report     report a closed month's overage, for a `billing:write` key
     api/spend-cap        read or move the ceiling on this workspace's overage
-    api/locale           read or set the language this workspace is written to in
+    api/locale           read or set the language this workspace is written to in,
+                         and tell the gateway to compose its own mail in it
     [locale]/            pricing, account and transactions pages, en + vi
-tests/               229 unit + 129 integration against real Postgres
+tests/               232 unit + 133 integration against real Postgres
   e2e/               Playwright: checkout, replay, the cancel drop, the plan
                      change, the invoice list, the spend cap
 ```
@@ -489,10 +508,10 @@ on every push, and the end-to-end suite beside it in a job with a browser.
 - **A dunning schedule.** Entering `PAST_DUE` and leaving it now mails the
   customer, but nothing here decides when the retries run out: Stripe's own
   retry settings do, and the cancellation they end in arrives as a webhook like
-  any other. The mails are composed in the language the workspace recorded, but
-  what Stripe itself sends — the receipt, the card-expiry warning — is composed
-  by Stripe from the language on its own customer record, and nothing here
-  writes this column across to it.
+  any other. The mails are composed in the language the workspace recorded, and
+  choosing one writes it across to Stripe's customer record so the receipt and
+  the card-expiry warning Stripe sends itself match; what is missing here is
+  the schedule, not the language it is announced in.
 - **Tax and receipts.** Stripe Tax and Stripe's hosted documents cover this
   better than an application ever will. The account page lists the invoices and
   links to each one, but nothing here composes a document, works out what is
