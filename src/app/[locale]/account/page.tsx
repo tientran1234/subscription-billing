@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import Link from "next/link";
 import { PLANS, type PlanKey } from "@/domain/entitlements";
 import { resolveTenant } from "@/domain/membership";
+import { noticeLocaleFor } from "@/domain/notice-locale";
 import { QUOTE_TTL_SECONDS } from "@/domain/plan-change";
 import { auth } from "@/lib/auth";
 import { billingProvider } from "@/providers";
@@ -12,8 +13,10 @@ import {
   listInvoiceHistory,
 } from "@/server/billing.service";
 import { spendCapFor } from "@/server/spend-cap";
+import { tenantLocale } from "@/server/tenant-locale";
 import { principalFrom, TENANT_HEADER } from "@/server/with-session";
 import { InvoiceHistory } from "./invoice-history";
+import { NoticeLocaleForm } from "./notice-locale-form";
 import { PlanPicker } from "./plan-picker";
 import { PortalLink } from "./portal-link";
 import { SpendCapForm } from "./spend-cap-form";
@@ -80,6 +83,11 @@ export default async function AccountPage({
   // ceiling under, and a form offering one would be a setting with no effect.
   const cap = entitlements.meteredOverage ? await spendCapFor(resolved.tenantId) : undefined;
 
+  // The language a notice would go out in today, not the raw column: the
+  // sentence under the form is about what we would send, and a workspace that
+  // has never chosen is already being written to in something.
+  const noticeLocale = noticeLocaleFor(await tenantLocale(resolved.tenantId));
+
   return (
     <main>
       <h1>{t("title")}</h1>
@@ -140,6 +148,26 @@ export default async function AccountPage({
           }}
         />
       )}
+
+      <NoticeLocaleForm
+        locale={noticeLocale}
+        labels={{
+          heading: t("noticeTitle"),
+          field: t("noticeField"),
+          current: t("noticeCurrent", { language: t(`language.${noticeLocale}`) }),
+          save: t("noticeSave"),
+          saving: t("noticeSaving"),
+          saved: t("noticeSaved"),
+          failed: t("noticeFailed"),
+          note: t("noticeNote"),
+          // Written out rather than folded over the locales, so adding one to
+          // src/i18n.ts is a compile error here instead of a blank option.
+          names: {
+            en: t("language.en"),
+            vi: t("language.vi"),
+          },
+        }}
+      />
 
       <InvoiceHistory
         history={invoices}

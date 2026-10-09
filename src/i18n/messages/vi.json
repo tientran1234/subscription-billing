@@ -50,6 +50,18 @@
     "capInvalid": "Giỗi hạn phải là số nguyên đơn vị, hoặc để trống nếu không giỗi hạn.",
     "capFailed": "Không lưu được giỗi hạn. Thử lại sau một lát.",
     "capNote": "Giỗi hạn được tính theo số đơn vị vượt định mức của gói, không tính theo tiền, vì đơn giá thuộc về Stripe và sẽ làm mức trần thay đổi ngoài ý bạn. Yêu cầu vượt quá sẽ bị từ chối thay vì bị tính phí, và hoá đơn của tháng không bao giờ vượt giỗi hạn. Để trống nếu không muốn giỗi hạn.",
+    "noticeTitle": "Ngôn ngữ thông báo",
+    "noticeField": "Gửi thông báo bằng",
+    "noticeCurrent": "Thông báo về workspace này được gửi bằng {language}.",
+    "noticeSave": "Lưu ngôn ngữ",
+    "noticeSaving": "Đang lưu…",
+    "noticeSaved": "Đã lưu. Thông báo tiếp theo sẽ dùng ngôn ngữ này.",
+    "noticeFailed": "Không lưu được ngôn ngữ. Thử lại sau một lát.",
+    "noticeNote": "Ngôn ngữ chúng tôi dùng khi viết cho bạn: thư khi thanh toán thất bại, khi gói đăng ký kết thúc, và khi một tháng sắp đạt giới hạn chi tiêu. Các trang web vẫn theo địa chỉ bạn mở và thiết lập của trình duyệt, nên thay đổi ở đây không chuyển bạn khỏi trang đang đọc. Stripe tự soạn hoá đơn và thông báo về thẻ, theo ngôn ngữ trên hồ sơ khách hàng của Stripe.",
+    "language": {
+      "en": "English",
+      "vi": "Tiếng Việt"
+    },
     "invoices": "Hoá đơn",
     "invoicesDate": "Ngày phát hành",
     "invoicesNumber": "Số hoá đơn",

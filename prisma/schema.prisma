@@ -20,6 +20,17 @@ model Tenant {
   /// is ours alone — the gateway is never told it — and outlives a workspace
   /// that cancels and subscribes again, exactly as its usage counters do.
   overageCap    Int?
+  /// The language this workspace is written to in, as one of the locales in
+  /// src/i18n.ts, or null for a workspace that has never said. Null is not
+  /// English: it is the absence of an answer, which is what every tenant from
+  /// before this column carries — src/domain/notice-locale.ts holds the rule
+  /// that turns it into a language to send in.
+  ///
+  /// On the tenant for the same reason the cap is. A notice is addressed to the
+  /// workspace, and the locale a page happened to render in belongs to one
+  /// reader's browser on one afternoon — not to the workspace a webhook writes
+  /// to hours later, from a request with no reader and no URL to read it off.
+  locale        String?
   subscriptions Subscription[]
   usage         UsageCounter[]
   apiKeys       ApiKey[]
