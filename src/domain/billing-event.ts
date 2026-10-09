@@ -233,6 +233,22 @@ export interface IBillingProvider {
    */
   reportUsage(input: ReportUsageInput): Promise<void>;
   /**
+   * Record on the provider's own customer which language it should compose its
+   * own mail in — its receipts, its card-expiry warnings.
+   *
+   * A write, and the only one here that is not about money. It carries no
+   * subscription and no price: the gateway decides nothing differently for
+   * having been told, it just stops writing to a Vietnamese workspace in
+   * English while this application writes to them in Vietnamese. So it is not
+   * the second writer of `status` the list in the conformance suite guards
+   * against — there is no event, and nothing comes back.
+   *
+   * Which language is not the adapter's to decide, and neither is whether to
+   * cross at all: the value arrives resolved and only when a workspace has
+   * picked one.
+   */
+  setCustomerLocale(input: SetCustomerLocaleInput): Promise<void>;
+  /**
    * The provider's own copy of an event, by the id it was delivered under, or
    * `null` when the provider has none. Normalized through the same code a
    * webhook goes through, so a replay cannot mean something different from the

@@ -5,14 +5,21 @@
  * customer saying which language to address them in, which is the account
  * page's business. The tenant is the session's own, as it is everywhere here.
  *
- * Nothing is sent to the gateway. Stripe composes its own mail — the receipts
- * and the card-expiry notices — from the language on its own customer record,
- * and this column has no say in those. What it decides is the mail this
- * application composes, which is the dunning notice and the cap warning.
+ * What the column decides is the mail this application composes — the dunning
+ * notice and the cap warning. The gateway composes its own as well, from the
+ * language on its own customer record, so the choice is written across to it
+ * too and a workspace stops being addressed in two languages at once.
+ *
+ * That write is best-effort by design, and the order says why: the column is
+ * ours to guarantee, the gateway's copy is ours to ask for. A 200 here means
+ * the choice is recorded and in force for the next notice we compose; whether
+ * the gateway took it is reported beside that rather than instead of it.
  */
 import { z } from "zod";
 import { noticeLocaleFor } from "@/domain/notice-locale";
 import { isLocale, locales } from "@/i18n";
+import { syncNoticeLocale } from "@/server/billing.service";
+import { billingProvider } from "@/providers";
 import { setTenantLocale, tenantLocale } from "@/server/tenant-locale";
 import { withSession } from "@/server/with-session";
 
@@ -50,5 +57,8 @@ export const POST = withSession(async (request, { tenantId }) => {
 
   await setTenantLocale(tenantId, locale);
   // In force for the next notice composed, which is all there is to wait for.
-  return Response.json({ locale });
+  // The gateway is told after the column is written, so a gateway that is down
+  // cannot cost the customer the choice they just made.
+  const gateway = await syncNoticeLocale(billingProvider(), { tenantId, locale });
+  return Response.json({ locale, gateway });
 });

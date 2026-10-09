@@ -173,6 +173,18 @@ describe("fake provider", () => {
     ]);
   });
 
+  it("records the language on the customer it was asked about", async () => {
+    const provider = new FakeProvider();
+    await provider.setCustomerLocale({ customerRef: "cus_1", preferredLocales: ["vi"] });
+
+    // Whose customer matters as much as which language: this write lands on a
+    // row at the gateway, and setting it on another workspace's would be the
+    // one thing it could do wrong that nobody would see.
+    expect(provider.customerLocales).toMatchObject([
+      { customerRef: "cus_1", preferredLocales: ["vi"] },
+    ]);
+  });
+
   it("asks the gateway for the metered add-on when the plan sells one", async () => {
     const provider = new FakeProvider();
     await provider.createCheckout({

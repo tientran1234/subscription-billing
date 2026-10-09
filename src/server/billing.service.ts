@@ -27,6 +27,8 @@ import {
 import { MIN_SEATS, checkSeats, type SeatRefusal } from "@/domain/seats";
 import { INVOICE_HISTORY_LIMIT, historyOf, type Invoice } from "@/domain/invoice";
 import { portalCustomerFor } from "@/domain/portal";
+import { preferredLocalesFor } from "@/domain/notice-locale";
+import type { Locale } from "@/i18n";
 import { predecessorsOf, statusForEvent } from "@/domain/subscription";
 import { entitlementsFor, trialDaysFor, type Entitlements } from "@/domain/entitlements";
 
@@ -224,6 +226,52 @@ export async function listInvoiceHistory(
     return { ok: true, invoices: historyOf(invoices) };
   } catch {
     return { ok: false, reason: "unavailable" };
+  }
+}
+
+export type NoticeLocaleSyncOutcome =
+  /** Nothing billed yet: this tenant has no customer with the provider to tell. */
+  | "no_customer"
+  /** The provider could not be reached, or refused; our own column stands. */
+  | "unavailable"
+  /** The provider's customer now carries the language too. */
+  | "recorded";
+
+/**
+ * Tell the provider's own customer which language to compose its mail in.
+ *
+ * Called after the column is written and never instead of it. The column is
+ * ours and decides the mail this application composes; the gateway's copy
+ * decides the receipts and the card-expiry warnings it sends on its own
+ * account. One of those we can guarantee and the other we can only ask for, so
+ * a gateway having a bad minute is an outcome here rather than a throw: a
+ * customer who has just chosen Vietnamese has chosen it, and losing that to an
+ * outage at Stripe — or making them click again to find out — would be paying
+ * for the half we do not own with the half we do. The next time they change it
+ * asks again, and `preferred_locales` only ever affects what the gateway writes
+ * next.
+ *
+ * The customer is resolved from the tenant through the same lookup the portal
+ * link and the invoice history use, so a workspace cannot name someone else's
+ * customer and set a language on it.
+ */
+export async function syncNoticeLocale(
+  provider: IBillingProvider,
+  input: { tenantId: string; locale: Locale },
+): Promise<NoticeLocaleSyncOutcome> {
+  const customerRef = await providerCustomerFor(input.tenantId);
+  // A workspace that has never subscribed has nothing on the gateway to write
+  // to, and will carry the column across on the checkout it eventually opens.
+  if (!customerRef) return "no_customer";
+
+  try {
+    await provider.setCustomerLocale({
+      customerRef,
+      preferredLocales: preferredLocalesFor(input.locale),
+    });
+    return "recorded";
+  } catch {
+    return "unavailable";
   }
 }
 

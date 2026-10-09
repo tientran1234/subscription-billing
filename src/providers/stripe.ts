@@ -20,6 +20,7 @@ import {
   type PlanChangePreview,
   type PreviewPlanChangeInput,
   type ReportUsageInput,
+  type SetCustomerLocaleInput,
   WebhookVerificationError,
 } from "@/domain/billing-event";
 import { invoiceStatusFrom, type Invoice } from "@/domain/invoice";
@@ -268,6 +269,15 @@ export class StripeProvider implements IBillingProvider {
       // by the provider on the pair that identifies the report.
       { idempotencyKey: `overage:${input.providerRef}:${input.period}` },
     );
+  }
+
+  async setCustomerLocale(input: SetCustomerLocaleInput): Promise<void> {
+    // No idempotency key: this sets a field to a value rather than adding to a
+    // running figure the way reportUsage does, so the second write of the same
+    // language is the same row and a replayed one costs nothing.
+    await this.stripe.customers.update(input.customerRef, {
+      preferred_locales: input.preferredLocales,
+    });
   }
 
   async fetchEvent(providerEventId: string): Promise<BillingEvent | null> {

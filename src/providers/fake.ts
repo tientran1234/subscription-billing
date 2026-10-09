@@ -17,6 +17,7 @@ import {
   type PlanChangePreview,
   type PreviewPlanChangeInput,
   type ReportUsageInput,
+  type SetCustomerLocaleInput,
   WebhookVerificationError,
 } from "@/domain/billing-event";
 import type { Invoice } from "@/domain/invoice";
@@ -64,16 +65,18 @@ export class FakeProvider implements IBillingProvider {
   readonly name = "fake";
 
   /**
-   * Every checkout opened, preview taken, plan change made and usage figure
-   * reported through this provider. Nothing in the app reads them; they are how
-   * a test sees which subscription was repriced, what trial and how many seats
-   * a checkout asked for, that a refused change never reached the provider at
-   * all, and that a month's overage was reported exactly once.
+   * Every checkout opened, preview taken, plan change made, usage figure
+   * reported and language recorded through this provider. Nothing in the app
+   * reads them; they are how a test sees which subscription was repriced, what
+   * trial and how many seats a checkout asked for, that a refused change never
+   * reached the provider at all, that a month's overage was reported exactly
+   * once, and whose customer was told to write in which language.
    */
   readonly checkouts: CreateCheckoutInput[] = [];
   readonly previews: PreviewPlanChangeInput[] = [];
   readonly planChanges: ChangePlanInput[] = [];
   readonly usageReports: ReportUsageInput[] = [];
+  readonly customerLocales: SetCustomerLocaleInput[] = [];
 
   /**
    * Every event this gateway has delivered, by id — what `fetchEvent` reads
@@ -128,6 +131,10 @@ export class FakeProvider implements IBillingProvider {
 
   async reportUsage(input: ReportUsageInput): Promise<void> {
     this.usageReports.push(input);
+  }
+
+  async setCustomerLocale(input: SetCustomerLocaleInput): Promise<void> {
+    this.customerLocales.push(input);
   }
 
   /** Sign a payload the way the fake gateway would — test helper. */
