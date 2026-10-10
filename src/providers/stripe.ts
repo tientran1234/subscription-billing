@@ -23,7 +23,7 @@ import {
   type SetCustomerLocaleInput,
   WebhookVerificationError,
 } from "@/domain/billing-event";
-import { invoiceStatusFrom, type Invoice } from "@/domain/invoice";
+import { invoiceStatusFrom, type Invoice, type InvoicePage } from "@/domain/invoice";
 
 /**
  * Only the fields we actually read, declared locally on purpose: an SDK or API
@@ -176,7 +176,7 @@ export class StripeProvider implements IBillingProvider {
     return { portalUrl: session.url };
   }
 
-  async listInvoices(input: ListInvoicesInput): Promise<Invoice[]> {
+  async listInvoices(input: ListInvoicesInput): Promise<InvoicePage> {
     // No `status` filter on the call, though Stripe takes one: it takes
     // exactly one status, and the four this list shows would be four requests.
     // Which of them are history is our rule anyway — see domain/invoice.ts —
@@ -184,8 +184,13 @@ export class StripeProvider implements IBillingProvider {
     const page = await this.stripe.invoices.list({
       customer: input.customerRef,
       limit: input.limit,
+      // Stripe's own cursor, left off the first request. An id it did not
+      // issue is an error from its side rather than a list quietly starting
+      // again, which is the behaviour the account page wants: the only cursor
+      // it ever offers came back from here.
+      starting_after: input.startingAfter,
     });
-    return page.data.map(normalizeInvoice);
+    return { invoices: page.data.map(normalizeInvoice), hasMore: page.has_more };
   }
 
   async previewPlanChange(input: PreviewPlanChangeInput): Promise<PlanChangePreview> {

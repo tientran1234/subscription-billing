@@ -112,7 +112,7 @@ describe("fake provider", () => {
 
   it("lists the invoices of the customer it was asked about, and no more than asked", async () => {
     const provider = new FakeProvider();
-    const invoices = await provider.listInvoices({ customerRef: "cus_local", limit: 2 });
+    const { invoices } = await provider.listInvoices({ customerRef: "cus_local", limit: 2 });
 
     expect(invoices).toHaveLength(2);
     // Whose invoices these are is the one thing this call can get wrong
@@ -120,14 +120,62 @@ describe("fake provider", () => {
     for (const invoice of invoices) expect(invoice.id).toContain("cus_local");
     // A limit the gateway ignored would be a page longer than the one the
     // product asked for, and on a slow account that is the whole archive.
-    expect(await provider.listInvoices({ customerRef: "cus_local", limit: 1 })).toHaveLength(1);
+    const narrower = await provider.listInvoices({ customerRef: "cus_local", limit: 1 });
+    expect(narrower.invoices).toHaveLength(1);
+  });
+
+  it("says whether anything is behind the window it handed back", async () => {
+    // The gateway's own answer, and the only thing that can give one: a window
+    // filled to the limit may still be the last, so the page cannot tell from
+    // a count whether there is anywhere to continue to.
+    const provider = new FakeProvider();
+    const short = await provider.listInvoices({ customerRef: "cus_local", limit: 2 });
+    expect(short.hasMore).toBe(true);
+
+    const whole = await provider.listInvoices({
+      customerRef: "cus_local",
+      limit: INVOICE_HISTORY_LIMIT,
+    });
+    expect(whole.hasMore).toBe(false);
+  });
+
+  it("reads the window that starts after the cursor it is given", async () => {
+    const provider = new FakeProvider();
+    const first = await provider.listInvoices({ customerRef: "cus_local", limit: 2 });
+    const second = await provider.listInvoices({
+      customerRef: "cus_local",
+      limit: 2,
+      startingAfter: first.invoices[first.invoices.length - 1].id,
+    });
+
+    // After, not from: a window that re-served the invoice the cursor names
+    // would repeat a row on every page, and a customer paging an archive would
+    // read the same month over and over.
+    const ids = first.invoices.map((invoice) => invoice.id);
+    for (const invoice of second.invoices) expect(ids).not.toContain(invoice.id);
+    expect(second.invoices.length).toBeGreaterThan(0);
+    expect(second.hasMore).toBe(false);
+  });
+
+  it("refuses a cursor it never issued rather than starting again", async () => {
+    // Starting again would hand the caller the newest invoices under a link
+    // that said "older", which reads as an archive that has lost everything
+    // behind the cursor. An error is the honest answer, and the account page
+    // turns it into "could not be read" rather than into an empty history.
+    await expect(
+      new FakeProvider().listInvoices({
+        customerRef: "cus_local",
+        limit: 2,
+        startingAfter: "in_not_ours",
+      }),
+    ).rejects.toThrow();
   });
 
   it("hands back the draft it is assembling rather than filtering it out", async () => {
     // The adapter normalizes what the gateway has; which invoices are history
     // is domain/invoice.ts's rule, and an adapter that applied half of it
     // would put the rule in two places for the next adapter to get wrong.
-    const invoices = await new FakeProvider().listInvoices({
+    const { invoices } = await new FakeProvider().listInvoices({
       customerRef: "cus_local",
       limit: INVOICE_HISTORY_LIMIT,
     });

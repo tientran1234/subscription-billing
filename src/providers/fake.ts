@@ -20,7 +20,7 @@ import {
   type SetCustomerLocaleInput,
   WebhookVerificationError,
 } from "@/domain/billing-event";
-import type { Invoice } from "@/domain/invoice";
+import type { Invoice, InvoicePage } from "@/domain/invoice";
 
 /** What a preview quotes. Made up — the fake is here for the flow, not the money. */
 export const FAKE_PRORATION_MINOR = 1_234;
@@ -100,16 +100,34 @@ export class FakeProvider implements IBillingProvider {
     return { portalUrl: `https://fake.portal/${input.customerRef}?return_to=${returnTo}` };
   }
 
-  async listInvoices(input: ListInvoicesInput): Promise<Invoice[]> {
-    // The customer rides in the ids and the links, the way it rides in the
+  async listInvoices(input: ListInvoicesInput): Promise<InvoicePage> {
+    // Every invoice this customer has, numbered before anything is sliced off:
+    // a cursor names one of these ids, so they have to be the same ids on the
+    // second request as on the first.
+    //
+    // The customer rides in them and in the links, the way it rides in the
     // portal url above: that is what lets a test see WHOSE invoices came back,
     // and reading another workspace's is the one thing this endpoint could do
     // wrong that nobody would notice.
-    return FAKE_INVOICES.slice(0, input.limit).map((invoice, index) => {
+    const archive = FAKE_INVOICES.map((invoice, index) => {
       const id = `in_fake_${input.customerRef}_${index}`;
       const hosted = invoice.status === "draft" ? null : `https://fake.invoice/${id}`;
       return { ...invoice, id, hostedUrl: hosted, pdfUrl: hosted && `${hosted}.pdf` };
     });
+
+    let from = 0;
+    if (input.startingAfter) {
+      const at = archive.findIndex((invoice) => invoice.id === input.startingAfter);
+      // A gateway refuses a cursor it never issued, as Stripe does, rather
+      // than starting the list again: a window that silently began from the
+      // top would read to the caller as an archive that had lost everything
+      // behind the cursor.
+      if (at < 0) throw new Error(`fake gateway: no invoice ${input.startingAfter}`);
+      from = at + 1;
+    }
+
+    const window = archive.slice(from, from + input.limit);
+    return { invoices: window, hasMore: from + window.length < archive.length };
   }
 
   async previewPlanChange(input: PreviewPlanChangeInput): Promise<PlanChangePreview> {

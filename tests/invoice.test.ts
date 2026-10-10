@@ -3,6 +3,7 @@ import { formatMoney } from "@/domain/currency";
 import {
   INVOICE_HISTORY_LIMIT,
   historyOf,
+  historyPageOf,
   isIssued,
   type Invoice,
   type InvoiceStatus,
@@ -75,5 +76,64 @@ describe("which invoices are history", () => {
     // paid. The rule is domain/currency.ts's, and this is the page using it.
     const paid = invoice({ id: "in_vnd", totalMinor: 490_000, currency: "vnd" });
     expect(formatMoney(paid.totalMinor, paid.currency, "vi")).toContain("490.000");
+  });
+});
+
+describe("where the next window of the archive starts", () => {
+  it("has nowhere older to go when the gateway says the window is the last", () => {
+    const page = historyPageOf({
+      invoices: [invoice({ id: "in_june" })],
+      hasMore: false,
+    });
+    // A link offered here is a link to an empty page: the cursor would be
+    // valid and the window behind it would hold nothing.
+    expect(page.nextCursor).toBeNull();
+    expect(page.invoices.map((i) => i.id)).toEqual(["in_june"]);
+  });
+
+  it("continues from the gateway's last row and not from the last row shown", () => {
+    // The window the gateway handed back ends on the draft, which never
+    // reaches the page. A cursor taken from what is drawn would name the
+    // issued invoice above it, and the next window would then open on the
+    // draft again — the same row, under a link that said "older", forever.
+    const page = historyPageOf({
+      invoices: [
+        invoice({ id: "in_paid", createdAt: new Date("2026-06-01") }),
+        invoice({
+          id: "in_draft",
+          status: "draft",
+          number: null,
+          createdAt: new Date("2026-05-01"),
+        }),
+      ],
+      hasMore: true,
+    });
+
+    expect(page.invoices.map((i) => i.id)).toEqual(["in_paid"]);
+    expect(page.nextCursor).toBe("in_draft");
+  });
+
+  it("takes the cursor from the gateway's order rather than from ours", () => {
+    // We sort for the page; the cursor is a position in the gateway's own
+    // sequence. Reading it off the sorted list would name the oldest invoice
+    // in the window instead of the row the window ended on, and the gap
+    // between the two is a month of invoices nobody is ever shown.
+    const page = historyPageOf({
+      invoices: [
+        invoice({ id: "in_may", createdAt: new Date("2026-05-01") }),
+        invoice({ id: "in_july", createdAt: new Date("2026-07-01") }),
+        invoice({ id: "in_june", createdAt: new Date("2026-06-01") }),
+      ],
+      hasMore: true,
+    });
+
+    expect(page.invoices.map((i) => i.id)).toEqual(["in_july", "in_june", "in_may"]);
+    expect(page.nextCursor).toBe("in_june");
+  });
+
+  it("offers no cursor for a window that came back empty", () => {
+    // A gateway claiming more while handing back nothing has given us nowhere
+    // to continue from, so the list ends instead of offering a dead link.
+    expect(historyPageOf({ invoices: [], hasMore: true }).nextCursor).toBeNull();
   });
 });

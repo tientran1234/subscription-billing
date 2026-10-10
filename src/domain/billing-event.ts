@@ -7,7 +7,7 @@
  * adapter that satisfies `IBillingProvider` — nothing else changes.
  */
 
-import type { Invoice } from "./invoice";
+import type { Invoice, InvoicePage } from "./invoice";
 
 export type BillingEventType =
   | "subscription_activated"
@@ -121,6 +121,16 @@ export interface ListInvoicesInput {
    * product question, and it is answered in src/domain/invoice.ts.
    */
   limit: number;
+  /**
+   * The gateway's id for the last invoice of the window before this one; the
+   * window read is the one starting after it. Absent for the first window.
+   *
+   * The gateway's cursor and not one of ours. The keyset we page our own
+   * tables with — see src/domain/transactions.ts — names a row by (createdAt,
+   * id) in a table this app has, and an invoice is in no table here; an
+   * archive can only be paged from a position its owner recognises.
+   */
+  startingAfter?: string;
 }
 
 export interface PreviewPlanChangeInput {
@@ -195,8 +205,13 @@ export interface IBillingProvider {
    * Which of them are history is not the adapter's to decide; it normalizes
    * what the gateway has, including the draft the gateway is still assembling,
    * and the rule in src/domain/invoice.ts drops that.
+   *
+   * One window, not the archive. `hasMore` is the gateway's own answer about
+   * what lies behind it, because the adapter is the only thing that can tell
+   * the difference between a window that ends the list and one that merely
+   * filled up; `startingAfter` reads the next.
    */
-  listInvoices(input: ListInvoicesInput): Promise<Invoice[]>;
+  listInvoices(input: ListInvoicesInput): Promise<InvoicePage>;
   /**
    * What moving to `priceRef` would cost right now: the proration computed,
    * quoted, and not charged. Nothing here changes a subscription, so a preview

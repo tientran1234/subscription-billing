@@ -219,11 +219,11 @@ export async function listInvoiceHistory(
   if (!customerRef) return { ok: false, reason: "no_customer" };
 
   try {
-    const invoices = await provider.listInvoices({
+    const page = await provider.listInvoices({
       customerRef,
       limit: INVOICE_HISTORY_LIMIT,
     });
-    return { ok: true, invoices: historyOf(invoices) };
+    return { ok: true, invoices: historyOf(page.invoices) };
   } catch {
     return { ok: false, reason: "unavailable" };
   }
