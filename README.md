@@ -101,6 +101,19 @@ another's would be two answers to a question that may only have one — and a
 gateway that cannot be reached says so, because "no invoices" is also exactly
 what a customer holding twelve of them would then be shown.
 
+The twelve are a window rather than the list, and behind them the archive pages
+through the gateway's own cursor — the keyset the transaction lists use names a
+row by `(createdAt, id)` in a table this app has, and an invoice is in no table
+here, so an archive can only be paged from a position its owner recognises. The
+cursor is the last row the gateway listed and not the last row shown: the draft
+dropped above is still a position in that sequence, and continuing from the
+newest invoice drawn would hand the draft back at the head of every window after
+it. It rides in the url and is passed through rather than parsed, because
+nothing here can tell a position Stripe would accept from one it would not — so
+an id it refuses reads as a list that could not be read, which is the honest
+answer for a hand-edited url and better than starting again from the newest
+invoices under a link that said "older".
+
 **A trial is the plan, on a status of its own.**
 `trialDays` on a plan is what a checkout asks the gateway for, read off
 `PLANS` rather than accepted from the route, so nobody can ask for a longer
@@ -415,7 +428,8 @@ src/
     subscription.ts    status enum + legal transitions + event mapping
     entitlements.ts    plans, features, quotas; entitlements as a pure function
     currency.ts        the currencies we sell in, and what a minor unit is worth
-    invoice.ts         what an invoice history is, and what is not in one
+    invoice.ts         what an invoice history is, what is not in one, and
+                       where the next window of the archive starts
     overage.ts         what is owed past the quota, and when a month may be billed
     spend-cap.ts       the ceiling a workspace sets on what it will be billed
     cap-warning.ts     which line of that ceiling is worth writing to them about
@@ -460,7 +474,7 @@ src/
     api/locale           read or set the language this workspace is written to in,
                          and tell the gateway to compose its own mail in it
     [locale]/            pricing, account and transactions pages, en + vi
-tests/               232 unit + 133 integration against real Postgres
+tests/               239 unit + 135 integration against real Postgres
   e2e/               Playwright: checkout, replay, the cancel drop, the plan
                      change, the invoice list, the spend cap
 ```
@@ -516,10 +530,15 @@ on every push, and the end-to-end suite beside it in a job with a browser.
   better than an application ever will. The account page lists the invoices and
   links to each one, but nothing here composes a document, works out what is
   owed in tax, or sends a receipt.
-- **The whole invoice archive.** The list is the last twelve, which is as far
-  back as anyone reads on the way to downloading one; the rest are in Stripe's
-  portal, which the same page already links to. Paging this would mean paging
-  the gateway, and the page it would end in is the one Stripe already hosts.
+- **A list of the whole archive at once, or a way back up through it.** The
+  window is still the last twelve, which is as far back as all but a few
+  customers ever read; behind it is a page back through Stripe's own cursor,
+  and that cursor points one way. So there is a link to older invoices and a
+  link to the newest, and nothing between them: walking back up window by
+  window would mean carrying every cursor visited in the url, and a customer
+  who has gone too far is one click from where they started. Reading the
+  archive in one request is what is not here at all — it would make every
+  customer wait for the year somebody's accountant asks for once.
 - **Invites and roles.** A membership is provisioned for the address that signs
   in; there is nothing that adds a second person to a tenant, and every member
   can do everything. Seats are sold and billed per person all the same, and the

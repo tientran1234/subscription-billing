@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-10
+
+- The whole invoice archive: the account page pages back through the gateway's own cursor, so a customer can read behind the first twelve invoices without being sent to the portal for them — twelve is as far back as all but a few customers ever read, but the few who need last year's invoice were being told to go and find it in a second place that lists the same documents; the cursor has to be the gateway's rather than the keyset the transaction lists use, because an invoice is in no table here and an archive can only be paged from a position its owner recognises, and it has to name the last row the gateway listed rather than the last row shown, since the draft dropped from the history is still a position in that sequence and continuing from the newest invoice drawn would hand the draft back at the head of every window after it.
+
 ## 2026-10-09
 
 - The notice language on the gateway's own customer: setting a workspace's locale writes it across to the provider's customer record, so the receipts and card-expiry warnings the gateway composes itself arrive in the language this application already writes in — the column decided only half of what a workspace received, and a product that mails in Vietnamese while its gateway mails in English about the same failed renewal is one the customer has to read twice; the column is written first and the gateway asked second, because the column is ours to guarantee and its copy is ours only to ask for, so a gateway having a bad minute is reported beside the saved choice rather than costing the customer the choice they just made.
