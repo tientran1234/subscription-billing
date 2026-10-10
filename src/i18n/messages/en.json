@@ -71,8 +71,11 @@
     "invoicesView": "View",
     "invoicesPdf": "PDF",
     "invoicesEmpty": "Nothing has been invoiced to this workspace yet.",
+    "invoicesEnd": "That is as far back as this workspace's invoices go.",
+    "invoicesOlder": "Older invoices",
+    "invoicesLatest": "Back to the latest",
     "invoicesUnavailable": "Could not reach Stripe for this list just now. Nothing is missing — reload in a moment.",
-    "invoicesNote": "Read from Stripe as this page loaded, and kept nowhere here, so what you see is the invoice itself rather than a copy of it. The documents are Stripe's and open there. Older invoices than these are in the billing portal below.",
+    "invoicesNote": "Read from Stripe as this page loaded, and kept nowhere here, so what you see is the invoice itself rather than a copy of it. The documents are Stripe's and open there. Older invoices than these are a page back through Stripe, or all of them at once in the billing portal below.",
     "invoiceStatus": {
       "draft": "Draft",
       "open": "Due",

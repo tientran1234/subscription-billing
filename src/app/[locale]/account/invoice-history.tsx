@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { formatMoney } from "@/domain/currency";
 import type { InvoiceStatus } from "@/domain/invoice";
 import type { InvoiceHistoryResult } from "@/server/billing.service";
@@ -8,7 +9,11 @@ const day = (date: Date) => date.toISOString().slice(0, 10);
 export interface InvoiceHistoryLabels {
   heading: string;
   empty: string;
+  /** What stands in for the table at the far end of the archive. */
+  end: string;
   unavailable: string;
+  older: string;
+  latest: string;
   note: string;
   date: string;
   number: string;
@@ -34,14 +39,26 @@ export interface InvoiceHistoryLabels {
  * document for: it still shows, because the month and the amount are the
  * history and the link is an extra. Dropping it would hide a month the
  * customer paid for.
+ *
+ * `older` and `latest` arrive built rather than assembled here, so the one
+ * place that knows this page's url stays the page itself. Forward and back to
+ * the start, like the transaction lists: the gateway's cursor only points one
+ * way, and a trail of every window visited would have to ride in the url to
+ * walk back through it.
  */
 export function InvoiceHistory({
   history,
   locale,
+  older,
+  latest,
   labels,
 }: {
   history: InvoiceHistoryResult;
   locale: string;
+  /** Where the next window of older invoices is, or null on the last one. */
+  older: string | null;
+  /** Back to the newest window — null when this is already it. */
+  latest: string | null;
   labels: InvoiceHistoryLabels;
 }) {
   const rows = history.ok ? history.invoices : [];
@@ -50,11 +67,20 @@ export function InvoiceHistory({
   // rather than reading as a workspace that has never been billed: "no
   // invoices" is the one wrong answer here, because it is also exactly what a
   // customer who has twelve of them would be shown.
-  const instead =
-    !history.ok && history.reason === "unavailable" ? labels.unavailable : labels.empty;
+  //
+  // So is "never been billed" on a window past the end of the archive: the
+  // customer reading it has invoices, and has just paged behind the last of
+  // them. `latest` is what says which of the two this is.
+  const instead = !history.ok
+    ? history.reason === "unavailable"
+      ? labels.unavailable
+      : labels.empty
+    : latest
+      ? labels.end
+      : labels.empty;
 
   return (
-    <section className="list">
+    <section className="list" id="invoices">
       <h2>{labels.heading}</h2>
 
       {rows.length === 0 ? (
@@ -103,6 +129,13 @@ export function InvoiceHistory({
       )}
 
       {rows.length > 0 ? <p className="sub">{labels.note}</p> : null}
+
+      {older || latest ? (
+        <p className="filters">
+          {older ? <Link href={older}>{labels.older}</Link> : null}
+          {latest ? <Link href={latest}>{labels.latest}</Link> : null}
+        </p>
+      ) : null}
     </section>
   );
 }

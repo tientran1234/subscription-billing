@@ -21,10 +21,25 @@ import { PlanPicker } from "./plan-picker";
 import { PortalLink } from "./portal-link";
 import { SpendCapForm } from "./spend-cap-form";
 
+/** Which window of the invoice archive the url is asking for. */
+const INVOICE_CURSOR_PARAM = "invoiceAfter";
+
+/**
+ * This page at a window of the invoice archive. The fragment is what makes the
+ * link usable: the list is near the foot of a long page, and a customer paging
+ * it would otherwise land back at the top of their plan on every click.
+ */
+function invoicesHref(locale: string, cursor: string | null): string {
+  const query = cursor ? `?${INVOICE_CURSOR_PARAM}=${encodeURIComponent(cursor)}` : "";
+  return `/${locale}/account${query}#invoices`;
+}
+
 export default async function AccountPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ locale: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { locale } = await params;
   const t = await getTranslations("account");
@@ -71,11 +86,21 @@ export default async function AccountPage({
     choose: t("changeTo", { plan: PLANS[planKey].name }),
   }));
 
+  // Which window of the invoice archive to draw. The gateway's own cursor, so
+  // it is passed through rather than parsed: nothing here can tell a position
+  // the gateway would accept from one it would not, and the one it refuses
+  // comes back as a list it could not read.
+  const raw = await searchParams;
+  const after = Array.isArray(raw[INVOICE_CURSOR_PARAM])
+    ? raw[INVOICE_CURSOR_PARAM][0]
+    : raw[INVOICE_CURSOR_PARAM];
+
   // Read from the provider on this request, which is the point: an invoice is
   // the provider's own document and goes on changing after it is raised, so a
   // copy here would be a second answer to what this workspace was charged.
   const invoices = await listInvoiceHistory(billingProvider(), {
     tenantId: resolved.tenantId,
+    startingAfter: after,
   });
 
   // The cap is drawn where it does something, which is where the quota is a
@@ -172,9 +197,16 @@ export default async function AccountPage({
       <InvoiceHistory
         history={invoices}
         locale={locale}
+        older={
+          invoices.ok && invoices.nextCursor ? invoicesHref(locale, invoices.nextCursor) : null
+        }
+        latest={after ? invoicesHref(locale, null) : null}
         labels={{
           heading: t("invoices"),
           empty: t("invoicesEmpty"),
+          end: t("invoicesEnd"),
+          older: t("invoicesOlder"),
+          latest: t("invoicesLatest"),
           unavailable: t("invoicesUnavailable"),
           note: t("invoicesNote"),
           date: t("invoicesDate"),

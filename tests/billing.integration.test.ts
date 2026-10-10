@@ -18,8 +18,9 @@ import {
   startPortalSession,
 } from "@/server/billing.service";
 import { meter } from "@/server/usage";
-import type { BillingEvent } from "@/domain/billing-event";
+import type { BillingEvent, ListInvoicesInput } from "@/domain/billing-event";
 import { CURRENCIES, DEFAULT_CURRENCY } from "@/domain/currency";
+import type { InvoicePage } from "@/domain/invoice";
 import { PLANS } from "@/domain/entitlements";
 import { FakeProvider } from "@/providers/fake";
 import { QUOTE_TTL_SECONDS } from "@/domain/plan-change";
@@ -641,6 +642,62 @@ describe.skipIf(!hasDatabase)("invoice history", () => {
     expect(invoices.some((invoice) => invoice.status === "draft")).toBe(false);
     expect(invoices.map((invoice) => invoice.status)).toEqual(["open", "paid"]);
     expect(invoices[0].createdAt.getTime()).toBeGreaterThan(invoices[1].createdAt.getTime());
+    // The gateway holds fewer invoices than one window, so there is nowhere
+    // older to offer and the page draws no link to it.
+    if (result.ok) expect(result.nextCursor).toBeNull();
+  });
+
+  it("pages back through the gateway's own cursor", async () => {
+    // A window two invoices wide, because the in-memory gateway holds three:
+    // what is under test is the cursor leaving here, reaching the gateway and
+    // coming back, not how wide INVOICE_HISTORY_LIMIT happens to be.
+    class ShallowGateway extends FakeProvider {
+      readonly asked: ListInvoicesInput[] = [];
+
+      async listInvoices(input: ListInvoicesInput): Promise<InvoicePage> {
+        this.asked.push(input);
+        return super.listInvoices({ ...input, limit: 2 });
+      }
+    }
+
+    await db.subscription.create({
+      data: { tenantId, planKey: "pro", status: "ACTIVE", customerRef: "cus_mine" },
+    });
+    const gateway = new ShallowGateway();
+
+    const first = await listInvoiceHistory(gateway, { tenantId });
+    expect(first.ok).toBe(true);
+    // The window held the draft and the invoice under it: one row to draw, and
+    // a cursor all the same. A list that offered none here would strand the
+    // customer one row into an archive the gateway has more of.
+    expect(first.ok && first.invoices.map((invoice) => invoice.number)).toEqual(["FAKE-0002"]);
+    const cursor = first.ok ? first.nextCursor : null;
+    expect(cursor).toBeTruthy();
+
+    const second = await listInvoiceHistory(gateway, {
+      tenantId,
+      startingAfter: cursor ?? undefined,
+    });
+    // The cursor reached the gateway, and the window behind it is the one the
+    // first did not show — not the first window again, which is what a cursor
+    // dropped on the way through would quietly serve.
+    expect(gateway.asked[1].startingAfter).toBe(cursor);
+    expect(second.ok && second.invoices.map((invoice) => invoice.number)).toEqual(["FAKE-0001"]);
+    expect(second.ok && second.nextCursor).toBeNull();
+  });
+
+  it("reads a cursor the gateway will not take as a list it could not read", async () => {
+    await db.subscription.create({
+      data: { tenantId, planKey: "pro", status: "ACTIVE", customerRef: "cus_mine" },
+    });
+
+    // The only cursor this page ever offers came back from the gateway, so a
+    // refused one is a hand-edited url. Saying the list could not be read is
+    // the honest answer; starting again from the newest invoices under a link
+    // that said "older" would read as an archive that had lost its back end.
+    expect(
+      await listInvoiceHistory(provider, { tenantId, startingAfter: "in_never_issued" }),
+    ).toEqual({ ok: false, reason: "unavailable" });
   });
 
   it("says the gateway could not be read rather than that nothing was billed", async () => {

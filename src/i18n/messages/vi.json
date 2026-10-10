@@ -71,8 +71,11 @@
     "invoicesView": "Xem",
     "invoicesPdf": "PDF",
     "invoicesEmpty": "Workspace này chưa có hoá đơn nào.",
+    "invoicesEnd": "Workspace này không còn hoá đơn nào cũ hơn.",
+    "invoicesOlder": "Hoá đơn cũ hơn",
+    "invoicesLatest": "Về hoá đơn mới nhất",
     "invoicesUnavailable": "Hiện chưa lấy được danh sách này từ Stripe. Không có hoá đơn nào bị mất — hãy tải lại sau giây lát.",
-    "invoicesNote": "Danh sách được đọc trực tiếp từ Stripe khi trang này tải và không lưu lại ở đây, nên đây chính là hoá đơn chứ không phải bản sao. Chứng từ do Stripe lưu và mở tại Stripe. Hoá đơn cũ hơn nằm trong cổng thanh toán bên dưới.",
+    "invoicesNote": "Danh sách được đọc trực tiếp từ Stripe khi trang này tải và không lưu lại ở đây, nên đây chính là hoá đơn chứ không phải bản sao. Chứng từ do Stripe lưu và mở tại Stripe. Hoá đơn cũ hơn nằm ở trang tiếp theo, hoặc xem tất cả trong cổng thanh toán bên dưới.",
     "invoiceStatus": {
       "draft": "Nháp",
       "open": "Cần thanh toán",

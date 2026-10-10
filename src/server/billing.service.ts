@@ -25,7 +25,7 @@ import {
   type CurrencyRefusal,
 } from "@/domain/currency";
 import { MIN_SEATS, checkSeats, type SeatRefusal } from "@/domain/seats";
-import { INVOICE_HISTORY_LIMIT, historyOf, type Invoice } from "@/domain/invoice";
+import { INVOICE_HISTORY_LIMIT, historyPageOf, type Invoice } from "@/domain/invoice";
 import { portalCustomerFor } from "@/domain/portal";
 import { preferredLocalesFor } from "@/domain/notice-locale";
 import type { Locale } from "@/i18n";
@@ -189,7 +189,12 @@ export async function startPortalSession(
 }
 
 export type InvoiceHistoryResult =
-  | { ok: true; invoices: Invoice[] }
+  | {
+      ok: true;
+      invoices: Invoice[];
+      /** Where the window of older invoices starts, null on the last one. */
+      nextCursor: string | null;
+    }
   /** Nothing billed yet: this tenant has no customer with the provider. */
   | { ok: false; reason: "no_customer" }
   /** The provider could not be read just now. */
@@ -206,6 +211,12 @@ export type InvoiceHistoryResult =
  * and PDF live on the invoice itself, so one read into this page is still the
  * same document tomorrow.
  *
+ * One window of it, and where the next one starts. `startingAfter` is a cursor
+ * that came back from this same call, so the page offers no position the
+ * gateway did not issue — and a cursor it will not take lands in the catch
+ * below, which is the honest answer for a hand-edited url: the alternative is
+ * reading as a workspace whose older invoices have gone.
+ *
  * A provider that cannot be reached is an outcome rather than a throw. The
  * account page holds the plan this workspace is on, the change it may make and
  * the link into the portal; a gateway having a bad minute must cost the list of
@@ -213,7 +224,7 @@ export type InvoiceHistoryResult =
  */
 export async function listInvoiceHistory(
   provider: IBillingProvider,
-  input: { tenantId: string },
+  input: { tenantId: string; startingAfter?: string },
 ): Promise<InvoiceHistoryResult> {
   const customerRef = await providerCustomerFor(input.tenantId);
   if (!customerRef) return { ok: false, reason: "no_customer" };
@@ -222,8 +233,9 @@ export async function listInvoiceHistory(
     const page = await provider.listInvoices({
       customerRef,
       limit: INVOICE_HISTORY_LIMIT,
+      startingAfter: input.startingAfter,
     });
-    return { ok: true, invoices: historyOf(page.invoices) };
+    return { ok: true, ...historyPageOf(page) };
   } catch {
     return { ok: false, reason: "unavailable" };
   }
