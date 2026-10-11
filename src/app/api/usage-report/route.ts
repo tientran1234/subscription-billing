@@ -7,7 +7,8 @@
  * exists for — and `billing:write` rather than a wildcard, so a key minted to
  * read the ledger cannot raise an invoice. The tenant is the key's own, the way
  * it is everywhere else here; a run across every workspace would need an
- * operator credential, and there are no roles yet (see the README).
+ * operator credential, and the roles there are reach one workspace each (see
+ * the README).
  *
  * Posting twice bills nothing twice. That is the job's own guarantee, not this
  * route's: the month is claimed by primary key in src/server/usage-report.ts,

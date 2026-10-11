@@ -192,6 +192,39 @@ paid for until somebody says otherwise — and the last member cannot be removed
 because the subscription outlives the memberships and a workspace with nobody in
 it goes on being billed with no one able to sign in and cancel it.
 
+**An admin changes the workspace, a member reads it, and there is nothing
+between them.** Every change a workspace can have done to it — the plan, the
+seats, the cap, the language it is written to in, a machine credential, who else
+is here — is enough to cost the people sharing the bill money or access, so a
+third role would be a promise that one of those is the safe one to hand out.
+That makes the rule one predicate over the role rather than a matrix of roles
+against actions, whose every row would read the same and whose first row to stop
+matching would be the one nobody noticed. Reading is in neither: the roster, the
+invoices and the usage are the bill a member is already sharing. A route that
+changes something declares it where the handler is exported, so the gate is a
+word beside the verb and a route that forgets one is a read.
+
+Two asymmetries are worth the lines they cost. Leaving is not an administrative
+act — somebody invited into a workspace they no longer work with should not have
+to ask the people still in it to let them out — so a member may remove
+themselves while only an admin may remove anybody else. And the last admin can
+be neither removed nor demoted: a workspace of members can still be signed in to
+and read, and still cannot be cancelled, repriced or re-staffed by anybody in
+it, which is the last-member wreck one step in. Whoever is leaving hands the role
+over first.
+
+Setting a role is the one membership write that is not a scoped `UPDATE` whose
+affected-row count is the answer, because what makes a demotion safe is a fact
+about the *other* rows — that one of them is still an admin — and no `WHERE`
+clause on the row being changed can see it. Two admins demoting each other would
+each read an admin beside them and leave none, so the read and the write go in a
+serialisable transaction, with one retry for the conflict Postgres raises
+instead of queueing. An invite carries the role its seat will arrive with, so
+what was offered is what lands; it defaults to `member`, while the membership
+column defaults to `admin` for the rows that predate it, whose people could
+already do everything. Both are read back through a narrowing function, so a
+value this build does not recognise is the role that may change nothing.
+
 **A price is per currency, and the currency is chosen once.**
 A plan carries an amount per currency rather than one converted at read time:
 a rate that moves would reprice the catalogue between the page a customer read
@@ -468,6 +501,8 @@ src/
     plan-change.ts     when a plan may move, and how long a quoted price holds
     seats.ts           how many seats we sell, and the floor the ones in use set
     membership.ts      which tenant a signed-in caller may act for
+    role.ts            what they may do there, and what keeps a workspace
+                       administrable while people come and go
     invite.ts          who may be offered a seat, and the one an invite holds
     dunning.ts         which status a customer is worth writing to about
     replay.ts          who may replay a provider event, and whose it has to be
@@ -507,9 +542,10 @@ src/
     api/locale           read or set the language this workspace is written to in,
                          and tell the gateway to compose its own mail in it
     api/invites          the roster; offer a seat to an address, or withdraw it
-    api/members          take somebody out of the workspace, freeing their seat
+    api/members          take somebody out of the workspace, freeing their seat,
+                         or set what they may do while they are in it
     [locale]/            pricing, account and transactions pages, en + vi
-tests/               266 unit + 156 integration against real Postgres
+tests/               283 unit + 163 integration against real Postgres
   e2e/               Playwright: checkout, replay, the cancel drop, the plan
                      change, the invoice list, the spend cap, the seat an
                      invite holds
@@ -583,14 +619,21 @@ on every push, and the end-to-end suite beside it in a job with a browser.
   who has gone too far is one click from where they started. Reading the
   archive in one request is what is not here at all — it would make every
   customer wait for the year somebody's accountant asks for once.
-- **Roles.** Every member can do everything: invite, remove each other,
-  change the plan, mint a key, move the cap. There is nothing that makes one
-  person an owner and another a reader, so the only protection against a member
-  emptying the workspace is the refusal to remove the last one. That is also
-  what "admin" means on the transactions page — the workspace the caller belongs
-  to, not a view across tenants. Roles are the one thing invites leave behind:
-  the seat accounting, the membership rows and the removal path are all here,
-  and what is missing is a column saying what each of those people may do.
+- **A role between admin and member, or one scoped to part of a workspace.**
+  There are two, and the division between them is whole: an admin may make
+  every change here and a member may make none. Somebody who should be able to
+  mint a credential but not move the cap, or read the invoices but not the
+  usage, has no role to be given — and inventing one would mean a matrix of
+  roles against actions in place of the single predicate, which is a table to
+  keep true rather than a rule to read. "Admin" on the transactions page is
+  still not one of these: it means the workspace the caller belongs to, not a
+  view across tenants, and there is no role here that sees past one workspace.
+- **The history of who could do what.** A role is a column, and setting it
+  overwrites the one before: a workspace cannot say when somebody became an
+  admin or who made them one. Every *use* of the role is attributable — a
+  replay records the account that asked for it, an invite records who sent it —
+  and keeping the grants as well would be an audit log on a write path that
+  exists because somebody was given the wrong role in the first place.
 - **A picker for a user who belongs to several workspaces.** An invited address
   that already had a workspace of its own now holds two memberships, and the
   session refuses to guess between them — the API takes `x-tenant-id`, which can

@@ -32,7 +32,10 @@ export interface ReplayInput {
   providerEventId: string;
   /** The tenant the caller proved they may act for — never read off the body. */
   tenantId: string;
-  /** Who asked. Recorded, not checked: there are no roles here yet. */
+  /**
+   * Who asked. Recorded here rather than checked — the route is the one that
+   * refuses a member, and what this file keeps is the attribution.
+   */
   userId: string;
   userEmail: string;
   appUrl: string;
