@@ -17,7 +17,9 @@ import {
   removeMember,
   revokeInvite,
   rosterView,
+  setMemberRole,
 } from "@/server/invites";
+import type { Role } from "@/domain/role";
 import { previewPlanChange } from "@/server/billing.service";
 import { MemoryMailer } from "@/server/mailer";
 import { FakeProvider } from "@/providers/fake";
@@ -35,8 +37,8 @@ describe.skipIf(!hasDatabase)("invites", () => {
   /** The address that set the workspace up, which holds the first seat. */
   const owner = () => ({ userId: ownerId, email: ownerEmail });
 
-  const invite = (email: string) =>
-    inviteMember({ tenantId, email, invitedBy: owner(), appUrl: APP_URL, mailer });
+  const invite = (email: string, role: Role = "member") =>
+    inviteMember({ tenantId, email, role, invitedBy: owner(), appUrl: APP_URL, mailer });
 
   /** A person with an account, the way an already-registered invitee is. */
   const signedUp = async (email: string) => {
@@ -179,6 +181,7 @@ describe.skipIf(!hasDatabase)("invites", () => {
     await inviteMember({
       tenantId: second.id,
       email: "joiner@example.test",
+      role: "member",
       invitedBy: secondOwner,
       appUrl: APP_URL,
       mailer,
@@ -228,6 +231,7 @@ describe.skipIf(!hasDatabase)("invites", () => {
     const result = await inviteMember({
       tenantId,
       email: "unreachable@example.test",
+      role: "member",
       invitedBy: owner(),
       appUrl: APP_URL,
       mailer: broken,
@@ -268,6 +272,24 @@ describe.skipIf(!hasDatabase)("invites", () => {
       seats: 1,
     });
     expect(refused).toEqual({ ok: false, reason: "seats_in_use" });
+  });
+
+  it("makes the membership with the role the seat was offered in", async () => {
+    await sell(4);
+    const asMember = await invite("reader@example.test");
+    const asAdmin = await invite("second-admin@example.test", "admin");
+    if (!asMember.ok || !asAdmin.ok) throw new Error("expected both invites to be sent");
+
+    await acceptOpenInvites(await signedUp("reader@example.test"));
+    await acceptOpenInvites(await signedUp("second-admin@example.test"));
+
+    // What was offered is what arrives: an address accepting a seat must not
+    // land with powers nobody decided to give it.
+    const roles = new Map(
+      (await rosterView(tenantId)).members.map((m) => [m.email, m.role] as const),
+    );
+    expect(roles.get("reader@example.test")).toBe("member");
+    expect(roles.get("second-admin@example.test")).toBe("admin");
   });
 
   it("expires an invite a fortnight out, which is the seat it holds coming back", async () => {
@@ -338,5 +360,82 @@ describe.skipIf(!hasDatabase)("removing a member", () => {
     // The seat is paid for until somebody reprices it, which is the plan
     // picker's job — and the thing the floor was stopping while it was taken.
     expect((await rosterView(tenantId)).seats).toBe(4);
+  });
+});
+
+describe.skipIf(!hasDatabase)("setting what a member may do", () => {
+  let tenantId: string;
+  let ownerId: string;
+
+  beforeEach(async () => {
+    await db.tenant.deleteMany();
+    await db.user.deleteMany();
+    const email = `owner-${randomUUID()}@example.test`;
+    tenantId = (await db.tenant.create({ data: { email, name: "Acme" } })).id;
+    ownerId = (await db.user.create({ data: { email } })).id;
+    await db.membership.create({ data: { userId: ownerId, tenantId, role: "admin" } });
+  });
+
+  afterAll(async () => {
+    await db.$disconnect();
+  });
+
+  const join = async (role: Role) => {
+    const user = await db.user.create({
+      data: { email: `member-${randomUUID()}@example.test` },
+    });
+    await db.membership.create({ data: { userId: user.id, tenantId, role } });
+    return user.id;
+  };
+
+  const roleOf = async (userId: string) =>
+    (await rosterView(tenantId)).members.find((m) => m.userId === userId)?.role;
+
+  it("promotes a member, and demotes them again once there is another admin", async () => {
+    const second = await join("member");
+    expect(await setMemberRole(tenantId, second, "admin")).toEqual({ ok: true });
+    expect(await roleOf(second)).toBe("admin");
+
+    expect(await setMemberRole(tenantId, second, "member")).toEqual({ ok: true });
+    expect(await roleOf(second)).toBe("member");
+  });
+
+  it("refuses to demote the last admin, and leaves the row alone", async () => {
+    await join("member");
+    expect(await setMemberRole(tenantId, ownerId, "member")).toEqual({
+      ok: false,
+      reason: "last_admin",
+    });
+    // The refusal has to be the whole of it: a workspace of members goes on
+    // being billed with nobody in it able to cancel or reprice it.
+    expect(await roleOf(ownerId)).toBe("admin");
+  });
+
+  it("lets the last admin hand the role over and then step down", async () => {
+    const second = await join("member");
+    expect(await setMemberRole(tenantId, second, "admin")).toEqual({ ok: true });
+    expect(await setMemberRole(tenantId, ownerId, "member")).toEqual({ ok: true });
+    expect(await roleOf(ownerId)).toBe("member");
+  });
+
+  it("refuses the last admin's removal for the same reason as their demotion", async () => {
+    await join("member");
+    expect(await removeMember(tenantId, ownerId)).toEqual({ ok: false, reason: "last_admin" });
+    expect((await rosterView(tenantId)).members).toHaveLength(2);
+  });
+
+  it("refuses somebody who is not in this workspace", async () => {
+    const stranger = await db.user.create({
+      data: { email: `stranger-${randomUUID()}@example.test` },
+    });
+    expect(await setMemberRole(tenantId, stranger.id, "admin")).toEqual({
+      ok: false,
+      reason: "not_a_member",
+    });
+  });
+
+  it("is a no-op, not a refusal, when the role is already the one asked for", async () => {
+    expect(await setMemberRole(tenantId, ownerId, "admin")).toEqual({ ok: true });
+    expect(await roleOf(ownerId)).toBe("admin");
   });
 });

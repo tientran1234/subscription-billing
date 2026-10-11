@@ -1,5 +1,6 @@
 /**
- * Sending an invite, withdrawing one, accepting one, and removing a member.
+ * Sending an invite, withdrawing one, accepting one, removing a member, and
+ * setting what one of them may do.
  *
  * The seat rules themselves are in src/domain/invite.ts and the roster they
  * read is in ./roster; what is here is the order the writes happen in, which is
@@ -22,6 +23,7 @@ import {
   type RemovalRefusal,
 } from "@/domain/invite";
 import { noticeLocaleFor, noticePagesFor } from "@/domain/notice-locale";
+import { checkRoleChange, roleFrom, type Role, type RoleChangeRefusal } from "@/domain/role";
 import { renderInviteEmail } from "@/emails/render";
 import { entitlementsForTenant } from "./billing.service";
 import { smtpMailer, type Mailer } from "./mailer";
@@ -30,6 +32,8 @@ import { membersOf, openInvitesOf, rosterFor, type InviteView, type MemberView }
 export interface InviteMemberInput {
   tenantId: string;
   email: string;
+  /** What the seat will carry when it is accepted. */
+  role: Role;
   /** Who is sending it: recorded on the row, and named in the mail. */
   invitedBy: { userId: string; email: string };
   appUrl: string;
@@ -74,6 +78,7 @@ export async function inviteMember(input: InviteMemberInput): Promise<InviteResu
     data: {
       tenantId: input.tenantId,
       email,
+      role: input.role,
       invitedByUserId: input.invitedBy.userId,
       invitedByEmail: input.invitedBy.email,
       expiresAt: inviteExpiryFrom(new Date()),
@@ -108,6 +113,7 @@ export async function inviteMember(input: InviteMemberInput): Promise<InviteResu
       email: invite.email,
       invitedByEmail: invite.invitedByEmail,
       expiresAt: invite.expiresAt,
+      role: input.role,
     },
   };
 }
@@ -172,9 +178,18 @@ export async function acceptOpenInvites(user: {
       // second fact to be surprised by: an address somehow already in the
       // workspace that invited it should end up with one membership rather
       // than an error thrown on its way in from a sign-in.
+      // The role the invite was sent with, so what arrives is what was
+      // offered. `update: {}` on the already-there case for the same reason it
+      // is empty for everything else: a membership that somehow exists already
+      // has a role somebody set, and an invite is not the place to overwrite
+      // it.
       await tx.membership.upsert({
         where: { userId_tenantId: { userId: user.userId, tenantId: candidate.tenantId } },
-        create: { userId: user.userId, tenantId: candidate.tenantId },
+        create: {
+          userId: user.userId,
+          tenantId: candidate.tenantId,
+          role: roleFrom(candidate.role),
+        },
         update: {},
       });
       return true;
@@ -211,10 +226,7 @@ export type RemoveMemberResult = { ok: true } | { ok: false; reason: RemovalRefu
  */
 export async function removeMember(tenantId: string, userId: string): Promise<RemoveMemberResult> {
   const members = await membersOf(tenantId);
-  const refusal = checkMemberRemoval(
-    userId,
-    members.map((m) => m.userId),
-  );
+  const refusal = checkMemberRemoval(userId, members);
   if (refusal) return { ok: false, reason: refusal };
 
   const { count } = await db.membership.deleteMany({ where: { tenantId, userId } });
@@ -222,6 +234,73 @@ export async function removeMember(tenantId: string, userId: string): Promise<Re
   // member, which is what it is by the time the answer is written.
   if (count !== 1) return { ok: false, reason: "not_a_member" };
   return { ok: true };
+}
+
+export type SetRoleResult = { ok: true } | { ok: false; reason: RoleChangeRefusal };
+
+/**
+ * A transaction Postgres refused to serialise, which is how the isolation
+ * level below reports a conflict rather than by making one caller wait.
+ * Matched on the code so this file does not depend on which of the client's
+ * error constructors a given build threw.
+ */
+function isSerialisationFailure(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return code === "P2034" || code === "40001";
+}
+
+/**
+ * Set what somebody in this workspace may do.
+ *
+ * The one write here that cannot be a scoped `UPDATE` whose affected-row count
+ * is the answer, the way withdrawing an invite is. What makes a demotion
+ * allowed is a fact about the *other* memberships — that one of them is still
+ * an admin — and no `WHERE` clause on the row being changed can see that. Two
+ * admins demoting each other at the same moment would each read an admin
+ * beside them, each pass the check, and leave a workspace with none: billed,
+ * signed in to, readable, and impossible for anybody in it to cancel or
+ * re-staff. That is the wreck `isLastAdmin` exists to prevent, so it is worth
+ * the serialisable read.
+ *
+ * Postgres answers that race by refusing to serialise one of the two rather
+ * than by queueing it, which is why there is a second attempt: it re-reads,
+ * finds the admin the other demotion left behind, and refuses properly instead
+ * of handing the caller a failed write to interpret. Only one retry — a second
+ * conflict is not this race.
+ */
+export async function setMemberRole(
+  tenantId: string,
+  userId: string,
+  role: Role,
+): Promise<SetRoleResult> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await db.$transaction(
+        async (tx): Promise<SetRoleResult> => {
+          const rows = await tx.membership.findMany({
+            where: { tenantId },
+            select: { userId: true, role: true },
+          });
+          const members = rows.map((row) => ({
+            userId: row.userId,
+            role: roleFrom(row.role),
+          }));
+
+          const refusal = checkRoleChange(userId, role, members);
+          if (refusal) return { ok: false, reason: refusal };
+
+          await tx.membership.update({
+            where: { userId_tenantId: { userId, tenantId } },
+            data: { role },
+          });
+          return { ok: true };
+        },
+        { isolationLevel: "Serializable" },
+      );
+    } catch (err) {
+      if (attempt > 0 || !isSerialisationFailure(err)) throw err;
+    }
+  }
 }
 
 export interface Roster {

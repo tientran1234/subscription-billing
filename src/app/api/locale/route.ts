@@ -61,4 +61,4 @@ export const POST = withSession(async (request, { tenantId }) => {
   // cannot cost the customer the choice they just made.
   const gateway = await syncNoticeLocale(billingProvider(), { tenantId, locale });
   return Response.json({ locale, gateway });
-});
+}, { changesWorkspace: true });

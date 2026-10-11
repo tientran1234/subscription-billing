@@ -2,13 +2,24 @@ import NextAuth from "next-auth";
 import Nodemailer from "next-auth/providers/nodemailer";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import type { Membership } from "@/domain/membership";
+import { roleFrom } from "@/domain/role";
 import { acceptOpenInvites } from "@/server/invites";
 import { db } from "./db";
 import { authEnv } from "./env";
 
 declare module "next-auth" {
   interface Session {
-    /** Every tenant this user may act for, carried on the session itself. */
+    /**
+     * Every tenant this user may act for and what they may do in each,
+     * carried on the session itself.
+     *
+     * The role is here rather than read per request because it is read on
+     * every one: the route wrapper refuses a change with it and the account
+     * page withholds buttons with it. Sessions are rows in Postgres and this
+     * callback runs against them, so a role changed in one workspace is in
+     * force on the person's next request — the same promise removing them from
+     * it makes.
+     */
     memberships: Membership[];
   }
 }
@@ -33,10 +44,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth(() => {
     callbacks: {
       async session({ session, user }) {
         session.user.id = user.id;
-        session.memberships = await db.membership.findMany({
+        const memberships = await db.membership.findMany({
           where: { userId: user.id },
-          select: { tenantId: true },
+          select: { tenantId: true, role: true },
         });
+        session.memberships = memberships.map((m) => ({
+          tenantId: m.tenantId,
+          role: roleFrom(m.role),
+        }));
         return session;
       },
     },
@@ -59,7 +74,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth(() => {
           create: { email: user.email, name: user.email.split("@")[0] },
           update: {},
         });
-        await db.membership.create({ data: { userId: user.id, tenantId: tenant.id } });
+        // An admin, stated rather than left to the column's default: this is
+        // the workspace's first and only member, and a workspace whose one
+        // person could not change it would be unusable from the moment it
+        // existed.
+        await db.membership.create({
+          data: { userId: user.id, tenantId: tenant.id, role: "admin" },
+        });
       },
       async signIn({ user }) {
         if (!user.id || !user.email) return;

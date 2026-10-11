@@ -213,6 +213,7 @@ export default async function AccountPage({
             no_seat: t("peopleNoSeat"),
             send_failed: t("peopleSendFailed"),
             last_member: t("peopleLastMember"),
+            last_admin: t("peopleLastAdmin"),
             not_a_member: t("peopleFailed"),
           },
         }}

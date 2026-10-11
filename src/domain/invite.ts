@@ -28,6 +28,7 @@
  * an address that never answers has to come back without anybody remembering
  * to ask for it.
  */
+import { isLastAdmin, type RoleHolder } from "./role";
 
 /**
  * How long an invite stays open: long enough for somebody who is away, short
@@ -163,11 +164,13 @@ export type RemovalRefusal =
   /** Not in this workspace, so there is nothing to remove. */
   | "not_a_member"
   /** The only member left: a workspace nobody can sign in to is unreachable. */
-  | "last_member";
+  | "last_member"
+  /** The only admin left: a workspace nobody can change is unmanageable. */
+  | "last_admin";
 
 /**
  * Whether the member `userId` may be removed from a workspace whose
- * memberships are `memberUserIds`. `null` means they may.
+ * memberships are `members`. `null` means they may.
  *
  * The last member is refused because the subscription outlives the memberships
  * — the workspace would go on being billed with nobody able to sign in, cancel
@@ -175,11 +178,25 @@ export type RemovalRefusal =
  * sending one takes a member. Removing yourself is otherwise allowed: somebody
  * who was invited into a workspace they no longer work with should not have to
  * ask the people still in it to let them out.
+ *
+ * The last admin is refused one step in from that, for the reason spelled out
+ * at `isLastAdmin`: a workspace left with only members can still be signed in
+ * to and read, and still cannot be cancelled, repriced or re-staffed by
+ * anybody in it. Whoever is leaving promotes somebody first, which is the
+ * handover this refusal exists to make them do.
+ *
+ * Who is *allowed* to ask for a removal is `canRemoveMember`, not this. This
+ * answers whether the workspace survives it, which is true or false whoever
+ * is asking.
  */
 export function checkMemberRemoval(
   userId: string,
-  memberUserIds: readonly string[],
+  members: readonly RoleHolder[],
 ): RemovalRefusal | null {
-  if (!memberUserIds.includes(userId)) return "not_a_member";
-  return memberUserIds.length <= 1 ? "last_member" : null;
+  if (!members.some((member) => member.userId === userId)) return "not_a_member";
+  // Before the admin check, because a sole member who is also the sole admin
+  // is both, and being told the workspace would have nobody in it is the more
+  // useful half of that: promoting somebody is not a way out of it.
+  if (members.length <= 1) return "last_member";
+  return isLastAdmin(userId, members) ? "last_admin" : null;
 }

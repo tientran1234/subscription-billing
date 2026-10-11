@@ -34,4 +34,4 @@ export const POST = withSession(async (request, { tenantId }) => {
   // Not a redirect: the link is single-use and short-lived, so the caller
   // decides when to follow it rather than having a preflight burn it.
   return Response.json({ portalUrl: result.portalUrl }, { status: 201 });
-});
+}, { changesWorkspace: true });

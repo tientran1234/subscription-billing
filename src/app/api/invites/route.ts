@@ -12,6 +12,7 @@
  * carries no token to hand back.
  */
 import { z } from "zod";
+import { roleFrom, ROLES } from "@/domain/role";
 import type { InviteOutcome } from "@/server/invites";
 import { inviteMember, rosterView } from "@/server/invites";
 import { withSession } from "@/server/with-session";
@@ -23,7 +24,11 @@ export const runtime = "nodejs";
 // than a seat on somebody else's workspace. What a sendable address looks like
 // is deliberately left to the domain rule — a copy of it in a schema here is
 // the second answer that goes stale, as the spend cap's bounds are.
-const Body = z.object({ email: z.string() }).strict();
+//
+// The role defaults to `member`, which is the fail-closed way round: a caller
+// that says nothing about what the seat may do offers the least it can, and
+// handing out the power to change the workspace takes asking for it.
+const Body = z.object({ email: z.string(), role: z.enum(ROLES).default("member") }).strict();
 
 /**
  * A 409 where the request is well formed and the workspace is in the way,
@@ -56,6 +61,7 @@ export const POST = withSession(async (request, { tenantId, userId, email }) => 
   const result = await inviteMember({
     tenantId,
     email: parsed.data.email,
+    role: roleFrom(parsed.data.role),
     // Off the session, never the body: the row names who offered the seat, and
     // an invite that could claim to be from somebody else is an invite nobody
     // can trust the From line of.
@@ -78,4 +84,4 @@ export const POST = withSession(async (request, { tenantId, userId, email }) => 
   // still the invited person's to make, which is what the row is holding a
   // seat for in the meantime.
   return Response.json({ invite: result.invite }, { status: 201 });
-});
+}, { changesWorkspace: true });

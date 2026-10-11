@@ -77,4 +77,4 @@ export const POST = withSession(async (request, { tenantId, email }) => {
     { subscriptionId: result.subscriptionId, checkoutUrl: result.checkoutUrl },
     { status: 201 },
   );
-});
+}, { changesWorkspace: true });

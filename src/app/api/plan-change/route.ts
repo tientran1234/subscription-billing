@@ -78,4 +78,4 @@ export const POST = withSession(async (request, { tenantId }) => {
   // invoice paying for it comes back as a webhook. Saying 200 would claim a
   // change that a declined card still has to make true.
   return Response.json({ status: "requested" }, { status: 202 });
-});
+}, { changesWorkspace: true });

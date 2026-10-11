@@ -32,4 +32,4 @@ export const POST = withSession(async (request, { tenantId }) => {
     { apiKey: raw, key, warning: "store this key now — it is not shown again" },
     { status: 201 },
   );
-});
+}, { changesWorkspace: true });

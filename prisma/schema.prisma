@@ -62,6 +62,16 @@ model Membership {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   tenantId  String
   tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// What this person may do in the workspace, as one of the roles in
+  /// src/domain/role.ts: an admin may change it, a member may read it.
+  ///
+  /// The default is `admin` for one reason only — every row that predates this
+  /// column belongs to somebody who could already do everything, and a default
+  /// of `member` would take that away from people who are using it. Every
+  /// write here states the role instead of relying on it, so the day the last
+  /// of those rows is gone the default is doing nothing. It is read back
+  /// through `roleFrom`, which narrows an unrecognised value to `member`.
+  role      String   @default("admin")
   createdAt DateTime @default(now())
 
   @@id([userId, tenantId])
@@ -88,6 +98,16 @@ model Invitation {
   /// it was at the time, the way DunningNotice records the one it wrote to.
   invitedByUserId String
   invitedByEmail  String
+  /// The role the membership will be made with, chosen when the seat is
+  /// offered. On the invite rather than settled afterwards so that what is
+  /// being offered is what arrives: an address accepting a seat should not
+  /// land with powers nobody decided to give it.
+  ///
+  /// Unlike the membership default this one is `member`, which is the right
+  /// way round for a row nobody has to have filled in: an invite sent before
+  /// this column existed grants the least it can, and the workspace can
+  /// promote whoever accepts it.
+  role            String    @default("member")
   /// When the seat this invite is holding comes back. An invite past this is
   /// closed with nothing having to run: the roster simply stops counting it.
   expiresAt       DateTime

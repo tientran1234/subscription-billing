@@ -41,6 +41,7 @@
     "peopleNoSeat": "Every seat is taken. Free one, or buy another, first.",
     "peopleSendFailed": "The invite could not be sent, so no seat is being held. Try again in a moment.",
     "peopleLastMember": "The last member cannot be removed: the subscription would go on with nobody able to sign in and cancel it.",
+    "peopleLastAdmin": "The last admin cannot be removed or made a member: nobody left in this workspace could change the plan, cancel it, or make anybody else an admin.",
     "peopleFailed": "That did not go through. Try again in a moment.",
     "peopleNote": "A seat is a person who can sign in for this workspace. An invite holds the seat it was sent for until it is accepted, withdrawn, or expires after {days} days — so an invite out is a seat that cannot be sold back. There are no roles yet: everybody here can do everything, including inviting and removing each other.",
     "changeTitle": "Change plan",

@@ -52,4 +52,4 @@ export const POST = withSession(async (request, { tenantId }) => {
   // wait for here. A cap is ours, so it is in force for the very next request,
   // and no invoice has to be paid to make it true.
   return Response.json({ capUnits });
-});
+}, { changesWorkspace: true });

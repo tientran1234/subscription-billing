@@ -41,6 +41,7 @@
     "peopleNoSeat": "Đã hết chỗ. Hãy giải phóng một chỗ, hoặc mua thêm, trước đã.",
     "peopleSendFailed": "Không gửi được lời mời, nên không có chỗ nào bị giữ. Thử lại sau một lát.",
     "peopleLastMember": "Không thể xoá thành viên cuối cùng: gói đăng ký vẫn tiếp tục mà không còn ai đăng nhập được để huỷ nó.",
+    "peopleLastAdmin": "Không thể xoá hoặc hạ quyền admin cuối cùng: sẽ không còn ai trong workspace này đổi được gói, huỷ gói, hay cấp quyền admin cho người khác.",
     "peopleFailed": "Không thực hiện được. Thử lại sau một lát.",
     "peopleNote": "Một chỗ là một người có thể đăng nhập vào workspace này. Lời mời giữ chỗ đã gửi cho đến khi được chấp nhận, bị thu hồi, hoặc hết hạn sau {days} ngày — nên một lời mời đang chờ là một chỗ chưa thể bán lại. Hiện chưa có phân quyền: mọi người ở đây đều làm được mọi việc, kể cả mời và xoá nhau.",
     "changeTitle": "Đổi gói",

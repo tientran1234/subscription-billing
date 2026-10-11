@@ -44,4 +44,4 @@ export const POST = withSession(async (request, { tenantId, userId, email }) => 
   // not missed after all and `no_transition` that it arrived too late to
   // matter, and both are the replay working rather than failing.
   return Response.json({ outcome: result.outcome, notified: result.notified });
-});
+}, { changesWorkspace: true });

@@ -12,4 +12,5 @@ export const DELETE = withSession(
     if (!revoked) return Response.json({ error: "no such key" }, { status: 404 });
     return new Response(null, { status: 204 });
   },
+  { changesWorkspace: true },
 );

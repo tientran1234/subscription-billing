@@ -17,6 +17,7 @@
  */
 import { db } from "@/lib/db";
 import { isInviteOpen, normaliseInviteEmail, type WorkspaceRoster } from "@/domain/invite";
+import { roleFrom, type Role } from "@/domain/role";
 
 /** An invite as the account page lists it. No token to withhold — there is none. */
 export interface InviteView {
@@ -24,21 +25,37 @@ export interface InviteView {
   email: string;
   invitedByEmail: string;
   expiresAt: Date;
+  /** The role the membership will be made with, so the list says what is on offer. */
+  role: Role;
 }
 
 /** A person in the workspace, as the account page lists them. */
 export interface MemberView {
   userId: string;
   email: string;
+  role: Role;
 }
 
+/**
+ * The people in a workspace, with what each of them may do.
+ *
+ * The role comes back here rather than being read per row where it is needed,
+ * because the rules that use it are about the set: whether this person is the
+ * last admin is not a question one membership can answer.
+ */
 export async function membersOf(tenantId: string): Promise<MemberView[]> {
   const rows = await db.membership.findMany({
     where: { tenantId },
-    select: { userId: true, user: { select: { email: true } } },
+    select: { userId: true, role: true, user: { select: { email: true } } },
     orderBy: { createdAt: "asc" },
   });
-  return rows.map((row) => ({ userId: row.userId, email: row.user.email }));
+  // Through `roleFrom` rather than cast: the column is a string, and a value
+  // this build does not know narrows to the role that may change nothing.
+  return rows.map((row) => ({
+    userId: row.userId,
+    email: row.user.email,
+    role: roleFrom(row.role),
+  }));
 }
 
 /**
@@ -59,6 +76,7 @@ export async function openInvitesOf(tenantId: string, now = new Date()): Promise
       email: row.email,
       invitedByEmail: row.invitedByEmail,
       expiresAt: row.expiresAt,
+      role: roleFrom(row.role),
     }));
 }
 

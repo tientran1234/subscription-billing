@@ -125,22 +125,45 @@ describe("whether an invite is still open", () => {
 });
 
 describe("removing a member", () => {
+  // Two admins unless a test says otherwise, so the last-admin refusal below
+  // is the thing being asserted rather than the thing in the way.
+  const admins = (...userIds: string[]) =>
+    userIds.map((userId) => ({ userId, role: "admin" as const }));
+
   it("removes one of several", () => {
-    expect(checkMemberRemoval("u2", ["u1", "u2"])).toBeNull();
+    expect(checkMemberRemoval("u2", admins("u1", "u2"))).toBeNull();
   });
 
   it("refuses the last member, who is the only way back into the workspace", () => {
     // The subscription outlives the membership: a workspace with nobody in it
     // goes on being billed with no one able to sign in and cancel it.
-    expect(checkMemberRemoval("u1", ["u1"])).toBe("last_member");
+    expect(checkMemberRemoval("u1", admins("u1"))).toBe("last_member");
   });
 
   it("refuses somebody who is not in the workspace", () => {
-    expect(checkMemberRemoval("u9", ["u1", "u2"])).toBe("not_a_member");
+    expect(checkMemberRemoval("u9", admins("u1", "u2"))).toBe("not_a_member");
   });
 
   it("lets a member remove themselves while others remain", () => {
-    expect(checkMemberRemoval("u1", ["u1", "u2"])).toBeNull();
+    expect(checkMemberRemoval("u1", admins("u1", "u2"))).toBeNull();
+  });
+
+  it("refuses the last admin, who is the only one who could change anything", () => {
+    // A workspace of members can be signed in to and read, and still cannot be
+    // cancelled, repriced or re-staffed by anybody in it. Whoever is leaving
+    // promotes somebody first.
+    const members = [
+      { userId: "u1", role: "admin" as const },
+      { userId: "u2", role: "member" as const },
+    ];
+    expect(checkMemberRemoval("u1", members)).toBe("last_admin");
+    expect(checkMemberRemoval("u2", members)).toBeNull();
+  });
+
+  it("tells the sole member that they are the last one, not the last admin", () => {
+    // Both are true of them; only one is worth saying, because promoting
+    // somebody is not a way out of being the only person in the workspace.
+    expect(checkMemberRemoval("u1", admins("u1"))).toBe("last_member");
   });
 });
 
