@@ -2,6 +2,7 @@ import { getTranslations } from "next-intl/server";
 import { headers } from "next/headers";
 import Link from "next/link";
 import { PLANS, type PlanKey } from "@/domain/entitlements";
+import { INVITE_TTL_DAYS } from "@/domain/invite";
 import { resolveTenant } from "@/domain/membership";
 import { noticeLocaleFor } from "@/domain/notice-locale";
 import { QUOTE_TTL_SECONDS } from "@/domain/plan-change";
@@ -12,11 +13,13 @@ import {
   entitlementsForTenant,
   listInvoiceHistory,
 } from "@/server/billing.service";
+import { rosterView } from "@/server/invites";
 import { spendCapFor } from "@/server/spend-cap";
 import { tenantLocale } from "@/server/tenant-locale";
 import { principalFrom, TENANT_HEADER } from "@/server/with-session";
 import { InvoiceHistory } from "./invoice-history";
 import { NoticeLocaleForm } from "./notice-locale-form";
+import { People } from "./people";
 import { PlanPicker } from "./plan-picker";
 import { PortalLink } from "./portal-link";
 import { SpendCapForm } from "./spend-cap-form";
@@ -103,6 +106,11 @@ export default async function AccountPage({
     startingAfter: after,
   });
 
+  // Who is in the workspace and who has been offered a seat. Read here rather
+  // than in the client, so the seat count this draws is the one the plan
+  // picker above enforces the floor from — both off the same roster.
+  const roster = await rosterView(resolved.tenantId);
+
   // The cap is drawn where it does something, which is where the quota is a
   // threshold: on a plan that stops at its allowance there is no bill to put a
   // ceiling under, and a form offering one would be a setting with no effect.
@@ -152,6 +160,61 @@ export default async function AccountPage({
           expired: t("changeExpired"),
           changed: t("changeChanged"),
           failed: t("changeFailed"),
+        }}
+      />
+
+      <People
+        members={roster.members.map((member) => ({
+          userId: member.userId,
+          email: member.email,
+          isYou: member.userId === principal.userId,
+        }))}
+        invites={roster.invites.map((invite) => ({
+          id: invite.id,
+          email: invite.email,
+          // Composed here, in the page's locale: the client has the reader's
+          // browser but not the locale the URL was fetched with, and a date
+          // rendered from each of those is a date that changes on a refresh.
+          detail: t("peopleInviteDetail", {
+            inviter: invite.invitedByEmail,
+            date: invite.expiresAt.toLocaleDateString(locale, {
+              day: "numeric",
+              month: "long",
+            }),
+          }),
+        }))}
+        seats={roster.seats}
+        labels={{
+          heading: t("peopleTitle"),
+          seats: t("peopleSeats", {
+            taken: roster.members.length + roster.invites.length,
+            seats: roster.seats,
+          }),
+          members: t("peopleMembers"),
+          invited: t("peopleInvitedHeading"),
+          you: t("peopleYou"),
+          field: t("peopleInviteField"),
+          invite: t("peopleInvite"),
+          inviting: t("peopleInviting"),
+          sent: t("peopleInviteSent"),
+          remove: t("peopleRemove"),
+          removing: t("peopleRemoving"),
+          withdraw: t("peopleWithdraw"),
+          full: t("peopleFull"),
+          failed: t("peopleFailed"),
+          note: t("peopleNote", { days: INVITE_TTL_DAYS }),
+          // Written out rather than folded over the unions, so a refusal added
+          // to either rule is a compile error here instead of a form that
+          // fails without saying why.
+          refusals: {
+            invalid_email: t("peopleInvalidEmail"),
+            already_member: t("peopleAlreadyMember"),
+            already_invited: t("peopleAlreadyInvited"),
+            no_seat: t("peopleNoSeat"),
+            send_failed: t("peopleSendFailed"),
+            last_member: t("peopleLastMember"),
+            not_a_member: t("peopleFailed"),
+          },
         }}
       />
 

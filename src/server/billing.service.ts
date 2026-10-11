@@ -25,12 +25,14 @@ import {
   type CurrencyRefusal,
 } from "@/domain/currency";
 import { MIN_SEATS, checkSeats, type SeatRefusal } from "@/domain/seats";
+import { seatsTaken } from "@/domain/invite";
 import { INVOICE_HISTORY_LIMIT, historyPageOf, type Invoice } from "@/domain/invoice";
 import { portalCustomerFor } from "@/domain/portal";
 import { preferredLocalesFor } from "@/domain/notice-locale";
 import type { Locale } from "@/i18n";
 import { predecessorsOf, statusForEvent } from "@/domain/subscription";
 import { entitlementsFor, trialDaysFor, type Entitlements } from "@/domain/entitlements";
+import { rosterFor } from "./roster";
 
 export type ApplyOutcome =
   /** Replayed delivery — already processed, nothing done. */
@@ -74,15 +76,16 @@ export type StartCheckoutResult =
   | { ok: false; reason: SeatRefusal | CurrencyRefusal };
 
 /**
- * Seats occupied right now.
+ * Seats taken right now: the people in the workspace, plus the invites holding
+ * one for somebody who has not signed in yet.
  *
- * A membership is the only thing that takes one: a person who can sign in and
- * act for this workspace. Nothing yet adds a second member — see the README —
- * so for most tenants this is one, but the floor is read rather than assumed,
- * because the day invites arrive is not the day to remember seats had a rule.
+ * The invites count because an open one is a seat already promised — see
+ * src/domain/invite.ts. If the floor under a seat reduction read memberships
+ * alone, a workspace could sell back the very seat it had just offered to
+ * somebody, and the invite would be accepted into a seat nobody is paying for.
  */
 async function seatsInUse(tenantId: string): Promise<number> {
-  return db.membership.count({ where: { tenantId } });
+  return seatsTaken(await rosterFor(tenantId));
 }
 
 export async function startCheckout(

@@ -23,7 +23,13 @@ import vi from "@/i18n/messages/vi.json";
 const MESSAGES: Record<Locale, typeof en> = { en, vi };
 
 /** The notices that have copy of their own, as named under `emails`. */
-export const EMAIL_SECTIONS = ["pastDue", "goodbye", "capApproaching", "capReached"] as const;
+export const EMAIL_SECTIONS = [
+  "pastDue",
+  "goodbye",
+  "capApproaching",
+  "capReached",
+  "invite",
+] as const;
 export type EmailSection = (typeof EMAIL_SECTIONS)[number];
 
 /**
