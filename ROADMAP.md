@@ -25,3 +25,4 @@ Same rule: one item per change, in order.
 - [x] Notices in the workspace's language: a tenant records the locale it is written to in, set on the account page, and the dunning and cap-warning mails are subject-lined, composed and linked in it.
 - [x] The notice language on the gateway's own customer: setting a workspace's locale writes it across to the provider's customer record, so the receipts and card-expiry warnings the gateway composes itself arrive in the language this application already writes in.
 - [x] The whole invoice archive: the account page pages back through the gateway's own cursor, so a customer can read behind the first twelve invoices without being sent to the portal for them.
+- [x] Invites: a workspace offers a seat to an address and the invite holds it until that address signs in, it is withdrawn or it expires, with a member removable to free one; roles stay out, so every member can still do everything.

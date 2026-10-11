@@ -152,15 +152,45 @@ quotas stay the workspace's, because buying a seat buys a person access and not
 another month's worth of messages. The floor is the part a gateway will not do
 for you: dropping below the seats in use pays for itself by taking somebody's
 access away, and nothing in the credit note says whose. So the count in use —
-read from the workspace's own memberships rather than assumed to be one — is
-refused before anything is quoted, at checkout as much as on a change, and
-whoever is leaving is removed first. A plan move that names no seats keeps the
+the workspace's own memberships plus the invites holding a seat for somebody,
+rather than assumed to be one — is refused before anything is quoted, at
+checkout as much as on a change, and whoever is leaving is removed first. A plan move that names no seats keeps the
 ones already paid for: defaulting to one there would take four seats off a
 workspace mid-upgrade and bill them a proration for it. The picker folds the
 eligibility rule over the number in the field rather than over a set rendered
 with the page, because which plans may be moved to depends on the count being
 asked for — and confirming sends the count that was quoted rather than the one
 in the field, so the price on the screen is the price for those seats.
+
+**An invite holds a seat, and is addressed rather than bearer.**
+A workspace adds a second person by naming an address. There is no token in the
+invite and none in the mail: sign-in here is a magic link, so the mailbox is
+already the credential, and a token would be a second and weaker one for the
+same thing — one that still works after the mail is forwarded, handing a seat to
+somebody the workspace never named. So the invited address signs in the way
+everybody else does, and an open row in its name is what turns that sign-in into
+a membership. That also means there is no invite page and no accept route to get
+wrong; `createUser` takes the invite instead of provisioning a personal tenant,
+because a second membership alongside would make that session ambiguous from its
+first request, and `signIn` runs the same claim for an address that already had
+an account when it was invited. Both are idempotent: the conditional `UPDATE` on
+the invite row is what decides, and it carries the membership in the same
+transaction, so a crash between them cannot leave an accepted invite with nobody
+in the workspace. An open invite holds the seat it was sent for, which is what
+keeps the floor above and the ceiling here reading one figure — without it,
+three invites against one free seat are all sent, all accepted, and the
+workspace ends up holding people it has not paid for. The seat comes back on
+exactly three events: the invite is accepted and the membership takes it
+instead, it is withdrawn, or it expires a fortnight out — read against the clock
+rather than swept, so a seat offered to an address that never answers comes back
+with nobody having to remember it. A failed send takes the row back, which is
+where this departs from the dunning notice it otherwise copies: there the claim
+only stops a second copy going out, while here the row *is* the seat, and an
+invite nobody received would hold one on behalf of a person who never heard
+about it. Removing a member frees their seat without repricing it — the seat is
+paid for until somebody says otherwise — and the last member cannot be removed,
+because the subscription outlives the memberships and a workspace with nobody in
+it goes on being billed with no one able to sign in and cancel it.
 
 **A price is per currency, and the currency is chosen once.**
 A plan carries an amount per currency rather than one converted at read time:
@@ -438,6 +468,7 @@ src/
     plan-change.ts     when a plan may move, and how long a quoted price holds
     seats.ts           how many seats we sell, and the floor the ones in use set
     membership.ts      which tenant a signed-in caller may act for
+    invite.ts          who may be offered a seat, and the one an invite holds
     dunning.ts         which status a customer is worth writing to about
     replay.ts          who may replay a provider event, and whose it has to be
     transactions.ts    cursor ordering and the filters the ledger may be read by
@@ -458,6 +489,8 @@ src/
     replay.ts           re-fetch one event, re-apply it, record who asked
     mailer.ts           the SMTP seam, so tests can read what was composed
     with-session.ts     session → tenant, for human callers
+    roster.ts           who holds a seat: the members, and the open invites
+    invites.ts          offer a seat, withdraw it, take it on a sign-in
     transactions.ts     the two paginated reads behind the transactions page
   app/
     api/webhooks/stripe  verify → claim → apply → notify
@@ -473,10 +506,13 @@ src/
     api/spend-cap        read or move the ceiling on this workspace's overage
     api/locale           read or set the language this workspace is written to in,
                          and tell the gateway to compose its own mail in it
+    api/invites          the roster; offer a seat to an address, or withdraw it
+    api/members          take somebody out of the workspace, freeing their seat
     [locale]/            pricing, account and transactions pages, en + vi
-tests/               239 unit + 135 integration against real Postgres
+tests/               266 unit + 156 integration against real Postgres
   e2e/               Playwright: checkout, replay, the cancel drop, the plan
-                     change, the invoice list, the spend cap
+                     change, the invoice list, the spend cap, the seat an
+                     invite holds
 ```
 
 ## Run it
@@ -493,15 +529,23 @@ pnpm stripe:listen
 ```
 
 Sign in at `/api/auth/signin` — Auth.js's own page is enough to click a magic
-link. First sign-in provisions a tenant for the address, or joins the tenant
-already seeded with it. `/account` then shows what that tenant may do, the
-plans it can move to, the seats it is paying for, the ceiling it has set on what
-it will be billed past its quota, the language it is written to in, the invoices
-it has been issued, and the link into Stripe's portal; the portal needs to be
+link. First sign-in provisions a tenant for the address, joins the tenant
+already seeded with it, or — if a workspace has invited the address — joins
+that one instead. `/account` then shows what that tenant may do, the
+plans it can move to, the seats it is paying for and who is holding them, the
+ceiling it has set on what it will be billed past its quota, the language it is
+written to in, the invoices it has been issued, and the link into Stripe's
+portal; the portal needs to be
 enabled once, in the Stripe dashboard under Settings → Billing → Customer
 portal. `/admin` lists that tenant's subscription
 attempts and what each API key spent, a page at a time, and is where an event
 the endpoint missed is replayed by id.
+
+Inviting somebody needs that SMTP url to work: the invite is the mail, so a
+send that fails holds no seat and says so, rather than leaving a row behind for
+a person who was never written to. The invited address then signs in at the
+same page everybody else does — there is no link in the mail to click, because
+the seat is held for the address rather than for a token.
 
 A closed month's overage is reported by posting to `/api/usage-report` with an
 API key scoped `billing:write` — once a month, from whatever cron the
@@ -539,15 +583,21 @@ on every push, and the end-to-end suite beside it in a job with a browser.
   who has gone too far is one click from where they started. Reading the
   archive in one request is what is not here at all — it would make every
   customer wait for the year somebody's accountant asks for once.
-- **Invites and roles.** A membership is provisioned for the address that signs
-  in; there is nothing that adds a second person to a tenant, and every member
-  can do everything. Seats are sold and billed per person all the same, and the
-  floor under a reduction is counted from those memberships rather than assumed
-  — the day invites land is not the day to remember that seats had a rule. That
-  is also what "admin" means on the transactions page — the workspace the caller
-  belongs to, not a view across tenants. A user who belongs to several tenants
-  can say which one on the API with `x-tenant-id`, but the account page has no
-  picker.
+- **Roles.** Every member can do everything: invite, remove each other,
+  change the plan, mint a key, move the cap. There is nothing that makes one
+  person an owner and another a reader, so the only protection against a member
+  emptying the workspace is the refusal to remove the last one. That is also
+  what "admin" means on the transactions page — the workspace the caller belongs
+  to, not a view across tenants. Roles are the one thing invites leave behind:
+  the seat accounting, the membership rows and the removal path are all here,
+  and what is missing is a column saying what each of those people may do.
+- **A picker for a user who belongs to several workspaces.** An invited address
+  that already had a workspace of its own now holds two memberships, and the
+  session refuses to guess between them — the API takes `x-tenant-id`, which can
+  only narrow what the session already grants, but the account page has no
+  control for it and reads as "this account belongs to several workspaces"
+  instead. The resolution rule has always been able to say `ambiguous`; what is
+  missing is a screen that acts on it.
 - **An end-to-end run against Stripe itself.** The suite drives the real
   routes with the in-memory gateway, so it proves this application's guarantees
   and none of Stripe's. Pointing it at a test-mode account and a real test

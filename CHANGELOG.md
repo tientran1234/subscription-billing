@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-11
+
+- Invites: a workspace offers a seat to an address and the invite holds it until that address signs in, it is withdrawn or it expires, with a member removable to free one — a membership was only ever provisioned for the address that signed in, so a workspace paying for seats had no way to put anybody in them; the invite is addressed rather than bearer because sign-in here is a magic link and the mailbox is already the credential, so there is no token to forward and signing in at the invited address is the whole of accepting; an open invite counts against the seats bought, which is what makes the ceiling on an invite and the floor under a seat reduction read one figure instead of letting a workspace sell back the seat it had just offered somebody; and a send that fails takes the row back, because here the row is the seat rather than a claim on a mail, and an invite nobody received would hold one for a fortnight on behalf of a person who never heard about it.
+
 ## 2026-10-10
 
 - The whole invoice archive: the account page pages back through the gateway's own cursor, so a customer can read behind the first twelve invoices without being sent to the portal for them — twelve is as far back as all but a few customers ever read, but the few who need last year's invoice were being told to go and find it in a second place that lists the same documents; the cursor has to be the gateway's rather than the keyset the transaction lists use, because an invoice is in no table here and an archive can only be paged from a position its owner recognises, and it has to name the last row the gateway listed rather than the last row shown, since the draft dropped from the history is still a position in that sequence and continuing from the newest invoice drawn would hand the draft back at the head of every window after it.
