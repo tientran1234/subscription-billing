@@ -458,6 +458,21 @@ names one in `x-tenant-id`, which can only narrow what their session already
 grants. Revocation is scoped by the `UPDATE` itself, so the affected-row count
 is the ownership check and there is no read-then-write window.
 
+**A browser picks its workspace; the choice is a hint like any other.**
+A navigation sets no headers, so the workspace somebody chose is kept in a
+cookie and `resolveRequestTenant` is where a page and a route both read it —
+one answer, so the screen cannot resolve differently from the refusal. A
+cookie is not a claim, though, and the difference is load-bearing: a header
+naming a workspace the account does not hold is refused, while a cookie naming
+one it has since been removed from is *forgotten*, so losing a membership
+leaves the picker rather than a 403 with nothing to click. `SameSite=Lax`
+keeps it from being a claim in the other direction — a cross-site POST carries
+no cookie, so it meets the same 409 it met before there was anything to
+remember, and another site cannot pick which of somebody's workspaces its
+forged request lands on. Setting it is the one route outside `withSession`,
+because an account in several workspaces is refused there before a handler
+runs, and answering that refusal is what the route is for.
+
 **API keys are hashed, scoped and metered.**
 A key is `sk_<env>_<48 hex>`; only its SHA-256 is stored, the raw value is
 returned once. Scopes (`billing:read`, `assistant:use`, …, with `ns:*` and `*`
@@ -500,7 +515,8 @@ src/
                        and what the gateway's own customer is told
     plan-change.ts     when a plan may move, and how long a quoted price holds
     seats.ts           how many seats we sell, and the floor the ones in use set
-    membership.ts      which tenant a signed-in caller may act for
+    membership.ts      which tenant a signed-in caller may act for, and which
+                       of them a picker's answer still resolves to
     role.ts            what they may do there, and what keeps a workspace
                        administrable while people come and go
     invite.ts          who may be offered a seat, and the one an invite holds
@@ -524,6 +540,7 @@ src/
     replay.ts           re-fetch one event, re-apply it, record who asked
     mailer.ts           the SMTP seam, so tests can read what was composed
     with-session.ts     session → tenant, for human callers
+    workspaces.ts       the names on the workspaces a session may choose between
     roster.ts           who holds a seat: the members, and the open invites
     invites.ts          offer a seat, withdraw it, take it on a sign-in
     transactions.ts     the two paginated reads behind the transactions page
@@ -544,8 +561,10 @@ src/
     api/invites          the roster; offer a seat to an address, or withdraw it
     api/members          take somebody out of the workspace, freeing their seat,
                          or set what they may do while they are in it
+    api/workspace        which workspaces this session may act for, and the one
+                         this browser is looking at
     [locale]/            pricing, account and transactions pages, en + vi
-tests/               283 unit + 163 integration against real Postgres
+tests/               303 unit + 168 integration against real Postgres
   e2e/               Playwright: checkout, replay, the cancel drop, the plan
                      change, the invoice list, the spend cap, the seat an
                      invite holds
@@ -567,7 +586,10 @@ pnpm stripe:listen
 Sign in at `/api/auth/signin` — Auth.js's own page is enough to click a magic
 link. First sign-in provisions a tenant for the address, joins the tenant
 already seeded with it, or — if a workspace has invited the address — joins
-that one instead. `/account` then shows what that tenant may do, the
+that one instead. An address that was invited while it already had a workspace
+of its own holds two, and `/account` asks which one to open before it draws
+anything; the choice stays at the top of the page, so switching is a click
+rather than a sign-out. `/account` then shows what that tenant may do, the
 plans it can move to, the seats it is paying for and who is holding them, the
 ceiling it has set on what it will be billed past its quota, the language it is
 written to in, the invoices it has been issued, and the link into Stripe's
@@ -634,13 +656,16 @@ on every push, and the end-to-end suite beside it in a job with a browser.
   replay records the account that asked for it, an invite records who sent it —
   and keeping the grants as well would be an audit log on a write path that
   exists because somebody was given the wrong role in the first place.
-- **A picker for a user who belongs to several workspaces.** An invited address
-  that already had a workspace of its own now holds two memberships, and the
-  session refuses to guess between them — the API takes `x-tenant-id`, which can
-  only narrow what the session already grants, but the account page has no
-  control for it and reads as "this account belongs to several workspaces"
-  instead. The resolution rule has always been able to say `ambiguous`; what is
-  missing is a screen that acts on it.
+- **Two workspaces open at once, or a workspace in the url.** The choice a
+  picker makes is one cookie for the whole site, so a second tab is the same
+  workspace as the first and switching in one switches both — and a page's
+  address says nothing about which workspace it was read for, so a link to
+  `/en/account` sent to a colleague opens theirs. Putting the workspace in the
+  path instead would make every address self-contained, and it would also make
+  it the one thing on the page a reader can edit: the id would be a request
+  naming a tenant, back on the footing `x-tenant-id` is on, with every link in
+  the app rewritten to carry it. The reader this is for holds two workspaces
+  and works in one of them at a time.
 - **An end-to-end run against Stripe itself.** The suite drives the real
   routes with the in-memory gateway, so it proves this application's guarantees
   and none of Stripe's. Pointing it at a test-mode account and a real test
