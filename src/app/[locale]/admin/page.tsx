@@ -3,7 +3,6 @@ import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { PLANS } from "@/domain/entitlements";
-import { resolveTenant } from "@/domain/membership";
 import { canChangeWorkspace } from "@/domain/role";
 import { SUBSCRIPTION_STATUSES } from "@/domain/subscription";
 import {
@@ -19,7 +18,8 @@ import {
 import { auth } from "@/lib/auth";
 import { listKeyUsage, listSubscriptions } from "@/server/transactions";
 import { currentPeriod } from "@/server/usage";
-import { principalFrom, TENANT_HEADER } from "@/server/with-session";
+import { principalFrom, resolveRequestTenant } from "@/server/with-session";
+import { WorkspaceChoice } from "../workspace-choice";
 import { ReplayForm } from "./replay-form";
 
 /** Server-rendered dates, so there is no locale to disagree with the client. */
@@ -107,12 +107,19 @@ export default async function AdminPage({
   // than a view across tenants — the lists below are scoped to that tenant in
   // SQL, not by this page — and everybody in it may read them. The one thing
   // here that changes anything is the replay form, which takes the role.
-  const resolved = resolveTenant(principal, (await headers()).get(TENANT_HEADER));
+  const resolved = resolveRequestTenant(principal, await headers());
   if (!resolved.ok) {
+    // The same picker the account page draws, because the lists below are
+    // scoped to one tenant in SQL: an account that has not chosen one has
+    // nothing here to page through, and sending it to the other screen to
+    // choose would be two clicks for the same answer.
     return (
       <main>
         <h1>{t("title")}</h1>
         <p className="sub">{resolved.reason === "ambiguous" ? t("ambiguous") : t("noTenant")}</p>
+        {resolved.reason === "ambiguous" ? (
+          <WorkspaceChoice principal={principal} current={null} />
+        ) : null}
         <Link href={`/${locale}/account`}>{t("backToAccount")}</Link>
       </main>
     );

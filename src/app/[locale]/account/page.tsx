@@ -3,7 +3,6 @@ import { headers } from "next/headers";
 import Link from "next/link";
 import { PLANS, type PlanKey } from "@/domain/entitlements";
 import { INVITE_TTL_DAYS } from "@/domain/invite";
-import { resolveTenant } from "@/domain/membership";
 import { canChangeWorkspace } from "@/domain/role";
 import { noticeLocaleFor } from "@/domain/notice-locale";
 import { QUOTE_TTL_SECONDS } from "@/domain/plan-change";
@@ -17,7 +16,8 @@ import {
 import { rosterView } from "@/server/invites";
 import { spendCapFor } from "@/server/spend-cap";
 import { tenantLocale } from "@/server/tenant-locale";
-import { principalFrom, TENANT_HEADER } from "@/server/with-session";
+import { principalFrom, resolveRequestTenant } from "@/server/with-session";
+import { WorkspaceChoice } from "../workspace-choice";
 import { InvoiceHistory } from "./invoice-history";
 import { NoticeLocaleForm } from "./notice-locale-form";
 import { People } from "./people";
@@ -60,14 +60,20 @@ export default async function AccountPage({
     );
   }
 
-  // The same rule the API routes run, from the same pure function: a page that
+  // The same rule the API routes run, through the same function: a page that
   // resolved the tenant its own way would be a second answer to go stale.
-  const resolved = resolveTenant(principal, (await headers()).get(TENANT_HEADER));
+  const resolved = resolveRequestTenant(principal, await headers());
   if (!resolved.ok) {
+    // `ambiguous` is the one of these the reader can settle themselves, and
+    // the picker is the whole of the page until they have: there is no plan,
+    // no seat count and no invoice to draw until it is known whose.
     return (
       <main>
         <h1>{t("title")}</h1>
         <p className="sub">{resolved.reason === "ambiguous" ? t("ambiguous") : t("noTenant")}</p>
+        {resolved.reason === "ambiguous" ? (
+          <WorkspaceChoice principal={principal} current={null} />
+        ) : null}
         {back}
       </main>
     );
@@ -126,6 +132,15 @@ export default async function AccountPage({
     <main>
       <h1>{t("title")}</h1>
       <p className="sub">{t("subtitle")}</p>
+
+      {/*
+        Above everything it governs, and drawn only for an account that holds
+        more than one workspace. It is also the way back out of a choice: the
+        cookie behind it has no expiry a reader would wait for, so a picker
+        that only appeared when nothing was chosen would be a decision made
+        once and never again.
+      */}
+      <WorkspaceChoice principal={principal} current={resolved.tenantId} />
 
       <section className="plan">
         <h2 style={{ margin: "0 0 12px", fontSize: "1rem" }}>

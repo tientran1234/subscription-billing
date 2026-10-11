@@ -123,9 +123,20 @@
     "signedOut": "Đăng nhập để xem gói và thông tin thanh toán của workspace này.",
     "signIn": "Đăng nhập",
     "noTenant": "Tài khoản này chưa thuộc workspace nào.",
-    "ambiguous": "Tài khoản này thuộc nhiều workspace, và phần chọn workspace chưa được xây dựng.",
+    "ambiguous": "Tài khoản này thuộc nhiều workspace. Hãy chọn workspace muốn mở.",
     "transactions": "Xem giao dịch",
     "backToPricing": "Quay lại bảng giá"
+  },
+  "workspace": {
+    "heading": "Workspace",
+    "ask": "Tài khoản này thuộc nhiều workspace. Hãy chọn workspace muốn mở — mọi thông tin trên trang này đều đọc theo workspace đang mở.",
+    "showing": "Trang này đang hiển thị workspace dưới đây. Mở một workspace khác sẽ thay đổi toàn bộ số liệu trên trang.",
+    "open": "Mở",
+    "opening": "Đang mở…",
+    "current": "đang mở",
+    "roleAdmin": "quản trị",
+    "roleMember": "thành viên",
+    "failed": "Không mở được workspace đó. Hãy thử lại sau một lát."
   },
   "admin": {
     "title": "Giao dịch",
@@ -165,7 +176,7 @@
     "signedOut": "Đăng nhập để xem giao dịch của workspace này.",
     "signIn": "Đăng nhập",
     "noTenant": "Tài khoản này chưa thuộc workspace nào.",
-    "ambiguous": "Tài khoản này thuộc nhiều workspace, và phần chọn workspace chưa được xây dựng.",
+    "ambiguous": "Tài khoản này thuộc nhiều workspace. Hãy chọn workspace muốn mở.",
     "backToAccount": "Quay lại tài khoản"
   },
   "emails": {

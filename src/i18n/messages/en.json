@@ -123,9 +123,20 @@
     "signedOut": "Sign in to see this workspace's plan and billing.",
     "signIn": "Sign in",
     "noTenant": "This account does not belong to a workspace yet.",
-    "ambiguous": "This account belongs to several workspaces, and choosing between them is not built yet.",
+    "ambiguous": "This account belongs to several workspaces. Pick the one to open.",
     "transactions": "See transactions",
     "backToPricing": "Back to pricing"
+  },
+  "workspace": {
+    "heading": "Workspace",
+    "ask": "This account belongs to more than one workspace. Pick the one to open — everything on this page is read for whichever it is.",
+    "showing": "This page is showing the workspace below. Opening another one changes what every figure on it is about.",
+    "open": "Open",
+    "opening": "Opening…",
+    "current": "open",
+    "roleAdmin": "admin",
+    "roleMember": "member",
+    "failed": "That workspace could not be opened. Try again in a moment."
   },
   "admin": {
     "title": "Transactions",
@@ -165,7 +176,7 @@
     "signedOut": "Sign in to see this workspace's transactions.",
     "signIn": "Sign in",
     "noTenant": "This account does not belong to a workspace yet.",
-    "ambiguous": "This account belongs to several workspaces, and choosing between them is not built yet.",
+    "ambiguous": "This account belongs to several workspaces. Pick the one to open.",
     "backToAccount": "Back to account"
   },
   "emails": {

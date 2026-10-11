@@ -1,5 +1,9 @@
 import type { Session } from "next-auth";
-import { resolveTenant, type Principal } from "@/domain/membership";
+import {
+  resolveChosenTenant,
+  type Principal,
+  type TenantResolution,
+} from "@/domain/membership";
 import { canChangeWorkspace, type Role } from "@/domain/role";
 import { auth } from "@/lib/auth";
 
@@ -103,7 +107,52 @@ export function principalFrom(session: Session | null): Principal | null {
 }
 
 /**
- * Session (plus, at most, a tenant header) → the tenant this request acts on.
+ * The workspace a picker chose, off this request's own cookies.
+ *
+ * Parsed out of the header rather than taken from `NextRequest.cookies`,
+ * because what this file is handed is a plain `Request` — which is what lets
+ * the rule below be exercised with one — and a page hands it the headers it
+ * was rendered for. The list is semicolon-separated either way.
+ */
+function rememberedTenantFrom(headers: Headers): string | null {
+  for (const pair of headers.get("cookie")?.split(";") ?? []) {
+    const equals = pair.indexOf("=");
+    // Matched whole: a cookie whose name merely starts with ours is somebody
+    // else's, and `slice(0, -1)` on a pair with no `=` would make the name the
+    // value.
+    if (equals === -1 || pair.slice(0, equals).trim() !== TENANT_COOKIE) continue;
+    try {
+      return decodeURIComponent(pair.slice(equals + 1).trim()) || null;
+    } catch {
+      // Nothing here wrote this value and a bad escape is not worth a 500: it
+      // is a choice we do not have, which is the picker again.
+      return null;
+    }
+  }
+  return null;
+}
+
+/**
+ * Session, plus the hints one request carries, → the tenant it acts on.
+ *
+ * The one place a page and a route both get that answer. A page that resolved
+ * it its own way would be a second rule to go stale, and reading the header
+ * without the cookie is what made a picker impossible: a navigation sets no
+ * headers.
+ */
+export function resolveRequestTenant(
+  principal: Principal,
+  headers: Headers,
+): TenantResolution {
+  return resolveChosenTenant(
+    principal,
+    headers.get(TENANT_HEADER),
+    rememberedTenantFrom(headers),
+  );
+}
+
+/**
+ * Session (plus, at most, the hints above) → the tenant this request acts on.
  * Throws rather than returns a union: every caller's failure path is the same
  * JSON error, and a forgotten branch should not be able to fall through into
  * the handler.
@@ -116,10 +165,16 @@ export function sessionContextFrom(
   const principal = principalFrom(session);
   if (!principal || !session?.user?.email) throw new SessionError("sign in first", 401);
 
-  const resolved = resolveTenant(principal, request.headers.get(TENANT_HEADER));
+  const resolved = resolveRequestTenant(principal, request.headers);
   if (!resolved.ok) {
     if (resolved.reason === "ambiguous") {
-      throw new SessionError(`several tenants — pick one with ${TENANT_HEADER}`, 409);
+      // The listing is named because this is the only refusal here a caller
+      // can do something about on its own, and a caller outside a browser has
+      // nowhere else to learn which ids it may name.
+      throw new SessionError(
+        `several workspaces — name one with ${TENANT_HEADER}, which GET /api/workspace lists`,
+        409,
+      );
     }
     // "forbidden" and "no_tenant" share a response for the same reason the
     // domain rule shares them: the caller learns nothing about what exists.
