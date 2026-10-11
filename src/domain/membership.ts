@@ -64,3 +64,33 @@ export function resolveTenant(
   const [only] = principal.memberships;
   return { ok: true, tenantId: only.tenantId, role: only.role };
 }
+
+/**
+ * Resolve the tenant a request acts on when a workspace may already have been
+ * chosen.
+ *
+ * Two hints, and they are not the same kind of thing. `named` is a request
+ * naming a tenant outright — the API's `x-tenant-id` — so one that names a
+ * workspace the caller does not hold is making a claim, and the rule above
+ * refuses it. `remembered` is what a picker settled on an earlier request,
+ * carried back by the browser rather than typed by anybody: a workspace this
+ * account has since been removed from is forgotten rather than refused,
+ * because the account still holds the others and what it is owed is the picker
+ * again, not a refusal it cannot click its way out of.
+ *
+ * `named` wins where both are there. A caller that went to the trouble of
+ * saying which workspace is answering the question the memory only guesses at.
+ */
+export function resolveChosenTenant(
+  principal: Principal,
+  named?: string | null,
+  remembered?: string | null,
+): TenantResolution {
+  if (named) return resolveTenant(principal, named);
+  // Checked here rather than left for `resolveTenant` to refuse: that is the
+  // whole of the difference between a claim and a memory.
+  if (remembered && isMemberOf(principal, remembered)) {
+    return resolveTenant(principal, remembered);
+  }
+  return resolveTenant(principal);
+}

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { isMemberOf, resolveTenant, type Principal } from "@/domain/membership";
+import {
+  isMemberOf,
+  resolveChosenTenant,
+  resolveTenant,
+  type Principal,
+} from "@/domain/membership";
 import type { Role } from "@/domain/role";
 
 const principal = (...tenantIds: string[]): Principal => ({
@@ -60,5 +65,70 @@ describe("tenant resolution", () => {
       role: "admin",
     });
     expect(resolveTenant(principal("t1", "t2"), "")).toEqual({ ok: false, reason: "ambiguous" });
+  });
+});
+
+describe("a workspace chosen earlier", () => {
+  it("resolves to the workspace that was chosen, instead of asking again", () => {
+    expect(resolveChosenTenant(principal("t1", "t2"), null, "t2")).toEqual({
+      ok: true,
+      tenantId: "t2",
+      role: "admin",
+    });
+  });
+
+  it("forgets a chosen workspace the account no longer belongs to", () => {
+    // The guarantee: a memory is not a claim. Refusing it would leave somebody
+    // removed from one of their workspaces with a 403 on every page and no
+    // picker to click, when the answer they are owed is the choice again.
+    expect(resolveChosenTenant(principal("t1", "t2"), null, "gone")).toEqual({
+      ok: false,
+      reason: "ambiguous",
+    });
+  });
+
+  it("still refuses a workspace the request itself names and the account does not hold", () => {
+    // The other half of the same guarantee: forgetting applies to the memory
+    // and never to the header, which is a caller making a claim about access.
+    expect(resolveChosenTenant(principal("t1", "t2"), "gone", "t1")).toEqual({
+      ok: false,
+      reason: "forbidden",
+    });
+  });
+
+  it("lets the request name a workspace over the one remembered", () => {
+    expect(resolveChosenTenant(principal("t1", "t2"), "t1", "t2")).toEqual({
+      ok: true,
+      tenantId: "t1",
+      role: "admin",
+    });
+  });
+
+  it("answers with the role of the membership the choice matched", () => {
+    const caller = inRoles(["t1", "admin"], ["t2", "member"]);
+    expect(resolveChosenTenant(caller, null, "t2")).toEqual({
+      ok: true,
+      tenantId: "t2",
+      role: "member",
+    });
+  });
+
+  it("changes nothing for an account with one workspace, or with none", () => {
+    expect(resolveChosenTenant(principal("t1"), null, "gone")).toEqual({
+      ok: true,
+      tenantId: "t1",
+      role: "admin",
+    });
+    expect(resolveChosenTenant(principal(), null, "gone")).toEqual({
+      ok: false,
+      reason: "no_tenant",
+    });
+  });
+
+  it("treats an empty choice as none made", () => {
+    expect(resolveChosenTenant(principal("t1", "t2"), "", "")).toEqual({
+      ok: false,
+      reason: "ambiguous",
+    });
   });
 });

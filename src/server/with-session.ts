@@ -47,12 +47,54 @@ export interface RouteGuard {
 }
 
 /**
- * A member of several tenants has to say which one. The header is the only
- * place a request may name a tenant — a body field would look like an
- * argument the handler acts on, which is the bug this whole file exists to
- * make impossible.
+ * A member of several tenants has to say which one, and there are two ways
+ * they can have said it.
+ *
+ * The header is where a request names a tenant outright. A body field is still
+ * not — it would look like an argument the handler acts on, which is the bug
+ * this whole file exists to make impossible.
+ *
+ * The cookie is where a workspace chosen from a picker is remembered. It is
+ * there because a page cannot set a header on its own navigation: without it a
+ * choice made on one screen would be forgotten by the next link clicked, which
+ * is why the picker could not be built before there was somewhere to keep its
+ * answer. Neither is trusted — both only ever narrow the set of tenants the
+ * session already grants, which is `resolveChosenTenant`'s guarantee and not
+ * this file's.
  */
 export const TENANT_HEADER = "x-tenant-id";
+export const TENANT_COOKIE = "workspace";
+
+/**
+ * How long a browser keeps the workspace it was told to remember. Long,
+ * because the alternative is a reader picking the same one every Monday.
+ */
+const TENANT_COOKIE_DAYS = 180;
+
+/**
+ * The `Set-Cookie` for a workspace a picker has just settled on.
+ *
+ * `HttpOnly` because nothing in the browser reads it: the pages are rendered
+ * from it on the server, and `fetch` sends it back without being asked.
+ *
+ * `SameSite=Lax` is the load-bearing one. A cross-site POST carries no cookie
+ * under it, so an account in several workspaces meets the same 409 on a
+ * request it did not make itself that it met before there was anything to
+ * remember — the choice cannot become a way for another site to pick which of
+ * somebody's workspaces its forged request lands on.
+ */
+export function chosenWorkspaceCookie(tenantId: string): string {
+  const attributes = [
+    `${TENANT_COOKIE}=${encodeURIComponent(tenantId)}`,
+    "Path=/",
+    "SameSite=Lax",
+    "HttpOnly",
+    `Max-Age=${TENANT_COOKIE_DAYS * 86_400}`,
+  ];
+  // Over http in development, where there is no TLS to require.
+  if (process.env.NODE_ENV === "production") attributes.push("Secure");
+  return attributes.join("; ");
+}
 
 export function principalFrom(session: Session | null): Principal | null {
   const userId = session?.user?.id;

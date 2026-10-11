@@ -7,9 +7,14 @@ import type { Role } from "@/domain/role";
 const auth = vi.hoisted(() => vi.fn<() => Promise<Session | null>>());
 vi.mock("@/lib/auth", () => ({ auth }));
 
-const { SessionError, TENANT_HEADER, sessionContextFrom, withSession } = await import(
-  "@/server/with-session"
-);
+const {
+  SessionError,
+  TENANT_COOKIE,
+  TENANT_HEADER,
+  chosenWorkspaceCookie,
+  sessionContextFrom,
+  withSession,
+} = await import("@/server/with-session");
 
 function session(userId: string, ...tenantIds: string[]): Session {
   return asRole("admin", userId, ...tenantIds);
@@ -30,6 +35,26 @@ function requestClaiming(tenantId: string, header?: string): Request {
     method: "POST",
     headers: header ? { [TENANT_HEADER]: header } : undefined,
     body: JSON.stringify({ tenantId, planKey: "pro" }),
+  });
+}
+
+/**
+ * The same request, carrying the workspace a picker chose.
+ *
+ * Two decoys ride in front of it on purpose: another cookie entirely, and one
+ * whose name starts with ours and holds a tenant this account really does
+ * belong to. A parser that matched on a prefix would read `t1` out of the
+ * second and every assertion below would come back with the wrong workspace.
+ */
+function requestCarrying(cookie: string | null, header?: string): Request {
+  const decoys = `session-token=abc; ${TENANT_COOKIE}-other=t1`;
+  return new Request("http://x/", {
+    method: "POST",
+    headers: {
+      ...(header ? { [TENANT_HEADER]: header } : {}),
+      cookie: cookie === null ? decoys : `${decoys}; ${TENANT_COOKIE}=${cookie}`,
+    },
+    body: JSON.stringify({ tenantId: "victim" }),
   });
 }
 
@@ -167,5 +192,51 @@ describe("withSession", () => {
 
     const response = await route(requestClaiming("victim"), { id: "key_1" });
     expect(await response.json()).toEqual({ id: "key_1", tenantId: "mine" });
+  });
+});
+
+describe("the workspace a picker chose", () => {
+  it("resolves the tenant a page cannot name in a header", () => {
+    // A browser navigating to a page sets no headers of its own, so the cookie
+    // is the only way a choice survives a link being clicked.
+    const ctx = sessionContextFrom(session("u1", "t1", "t2"), requestCarrying("t2"));
+    expect(ctx.tenantId).toBe("t2");
+  });
+
+  it("is read off its own name and not off a cookie that starts with it", () => {
+    // Only the decoys, so there is no choice here at all — and the account is
+    // owed the picker rather than the workspace the decoy happens to name.
+    try {
+      sessionContextFrom(session("u1", "t1", "t2"), requestCarrying(null));
+      expect.unreachable("a cookie that is not ours must not resolve a tenant");
+    } catch (err) {
+      expect((err as { status: number }).status).toBe(409);
+    }
+  });
+
+  it("gives way to a tenant the request names outright", () => {
+    expect(sessionContextFrom(session("u1", "t1", "t2"), requestCarrying("t2", "t1")).tenantId).toBe(
+      "t1",
+    );
+  });
+
+  it("is forgotten rather than refused once the account leaves that workspace", async () => {
+    // 409 and not 403: the account still has two workspaces to pick between,
+    // and a 403 would be a page it could not click its way off.
+    const handler = vi.fn(async () => new Response(null, { status: 204 }));
+    const route = withSession(handler);
+    auth.mockResolvedValue(session("u1", "t1", "t2"));
+
+    expect((await route(requestCarrying("gone"))).status).toBe(409);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("is not carried on a request made from another site", () => {
+    // SameSite=Lax is what holds this up, so the attribute is the assertion:
+    // a cross-site POST sends no cookie, and an account in several workspaces
+    // meets the same 409 it did before there was anything to remember.
+    expect(chosenWorkspaceCookie("t2")).toMatch(/;\s*SameSite=Lax/);
+    expect(chosenWorkspaceCookie("t2")).toMatch(/;\s*HttpOnly/);
+    expect(chosenWorkspaceCookie("t2")).toMatch(new RegExp(`^${TENANT_COOKIE}=t2;`));
   });
 });
