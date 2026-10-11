@@ -4,11 +4,14 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { InviteOutcome } from "@/server/invites";
 import type { RemovalRefusal } from "@/domain/invite";
+import { isLastAdmin, type Role } from "@/domain/role";
 
 /** A person in the workspace, as the server read them. */
 export interface PersonRow {
   userId: string;
   email: string;
+  /** What they may do here, which is also what the controls beside them are. */
+  role: Role;
   /** The signed-in reader, labelled so they can see which row is theirs. */
   isYou: boolean;
 }
@@ -17,6 +20,8 @@ export interface PersonRow {
 export interface InviteRow {
   id: string;
   email: string;
+  /** The role the seat was offered in, so the list says what is on its way. */
+  role: Role;
   /**
    * Who sent it and how long the seat is held, as one sentence the server has
    * already composed in the page's locale.
@@ -43,8 +48,20 @@ export interface PeopleLabels {
   inviting: string;
   sent: string;
   remove: string;
+  /** On the reader's own row, where removal is leaving rather than removing. */
+  leave: string;
   removing: string;
   withdraw: string;
+  /** What each role is called, written out so adding one is a compile error. */
+  roles: Record<Role, string>;
+  /** The button that hands the role over, and the one that takes it back. */
+  makeAdmin: string;
+  makeMember: string;
+  savingRole: string;
+  /** Beside the invite field: what the seat being offered will be able to do. */
+  inviteRole: string;
+  /** Said in place of every control, to somebody who may only read. */
+  readOnly: string;
   /** Said where the form would be, when there is no seat to offer. */
   full: string;
   failed: string;
@@ -54,8 +71,13 @@ export interface PeopleLabels {
    * back. Written out by the page rather than folded over the union, so a
    * refusal added to either rule is a compile error there instead of a form
    * that fails silently here.
+   *
+   * `not_an_admin` is the route wrapper's rather than either rule's: the
+   * controls that would meet it are withheld below, so it is the answer to a
+   * request this page did not draw — a role changed in another tab, most
+   * likely, which is worth a sentence rather than "that did not go through".
    */
-  refusals: Record<InviteOutcome | RemovalRefusal, string>;
+  refusals: Record<InviteOutcome | RemovalRefusal | "not_an_admin", string>;
 }
 
 type State =
@@ -79,20 +101,31 @@ type State =
  * offered and refused: the seats are bought immediately above, so the answer
  * to a full workspace is a sentence pointing there and not a round trip that
  * says no.
+ *
+ * Every control a role does not license disappears the same way. A member sees
+ * the whole roster — it is the bill they are sharing — and no button on it but
+ * the one that lets them leave, which is not an administrative act. The server
+ * refuses all of it again regardless: the controls are withheld so that a
+ * refusal means a request this page did not draw, not so that withholding them
+ * is what stops it.
  */
 export function People({
   members,
   invites,
   seats,
+  canAdminister,
   labels,
 }: {
   members: PersonRow[];
   invites: InviteRow[];
   seats: number;
+  /** Whether the reader's role lets them change any of this. */
+  canAdminister: boolean;
   labels: PeopleLabels;
 }) {
   const router = useRouter();
   const [field, setField] = useState("");
+  const [role, setRole] = useState<Role>("member");
   const [state, setState] = useState<State>({ kind: "idle" });
 
   const taken = members.length + invites.length;
@@ -133,9 +166,20 @@ export function People({
         fetch("/api/invites", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ email: field }),
+          body: JSON.stringify({ email: field, role }),
         }),
       { kind: "sent" },
+    );
+
+  const setMemberRole = (userId: string, next: Role) =>
+    send(
+      () =>
+        fetch(`/api/members/${userId}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ role: next }),
+        }),
+      { kind: "idle" },
     );
 
   const withdraw = (id: string) =>
@@ -169,28 +213,49 @@ export function People({
           </tr>
         </thead>
         <tbody>
-          {members.map((member) => (
-            <tr key={member.userId}>
-              <td>
-                {member.email}
-                {member.isYou ? <span className="sub"> ({labels.you})</span> : null}
-              </td>
-              <td className="num">
-                {/* The last member is refused by the server too; the button is
-                    withheld so the only way to meet that refusal is a request
-                    this page did not draw. */}
-                {members.length > 1 ? (
-                  <button
-                    className="button secondary"
-                    onClick={() => remove(member.userId)}
-                    disabled={working}
-                  >
-                    {working ? labels.removing : labels.remove}
-                  </button>
-                ) : null}
-              </td>
-            </tr>
-          ))}
+          {members.map((member) => {
+            // Every refusal the server has is also a control withheld here, so
+            // the only way to meet one is a request this page did not draw.
+            // The last admin may not be demoted or removed, the last member may
+            // not be removed, and leaving is the one of these a member may do.
+            const last = isLastAdmin(member.userId, members);
+            const mayRemove = member.isYou || canAdminister;
+            return (
+              <tr key={member.userId}>
+                <td>
+                  {member.email}
+                  {member.isYou ? <span className="sub"> ({labels.you})</span> : null}
+                  <span className="sub"> — {labels.roles[member.role]}</span>
+                </td>
+                <td className="num">
+                  {canAdminister && !last ? (
+                    <button
+                      className="button secondary"
+                      onClick={() =>
+                        setMemberRole(member.userId, member.role === "admin" ? "member" : "admin")
+                      }
+                      disabled={working}
+                    >
+                      {working
+                        ? labels.savingRole
+                        : member.role === "admin"
+                          ? labels.makeMember
+                          : labels.makeAdmin}
+                    </button>
+                  ) : null}{" "}
+                  {members.length > 1 && mayRemove && !last ? (
+                    <button
+                      className="button secondary"
+                      onClick={() => remove(member.userId)}
+                      disabled={working}
+                    >
+                      {working ? labels.removing : member.isYou ? labels.leave : labels.remove}
+                    </button>
+                  ) : null}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
 
@@ -207,16 +272,21 @@ export function People({
               <tr key={pending.id}>
                 <td>
                   {pending.email}
-                  <span className="sub"> — {pending.detail}</span>
+                  <span className="sub">
+                    {" "}
+                    — {labels.roles[pending.role]}, {pending.detail}
+                  </span>
                 </td>
                 <td className="num">
-                  <button
-                    className="button secondary"
-                    onClick={() => withdraw(pending.id)}
-                    disabled={working}
-                  >
-                    {labels.withdraw}
-                  </button>
+                  {canAdminister ? (
+                    <button
+                      className="button secondary"
+                      onClick={() => withdraw(pending.id)}
+                      disabled={working}
+                    >
+                      {labels.withdraw}
+                    </button>
+                  ) : null}
                 </td>
               </tr>
             ))}
@@ -224,7 +294,12 @@ export function People({
         </table>
       )}
 
-      {taken >= seats ? (
+      {/* A member is told what they are looking at rather than shown a form
+          they would be refused: the seats are bought above and the people are
+          listed here, and both are theirs to read. */}
+      {!canAdminister ? (
+        <p className="sub">{labels.readOnly}</p>
+      ) : taken >= seats ? (
         <p className="sub">{labels.full}</p>
       ) : (
         <p className="invite">
@@ -239,15 +314,24 @@ export function People({
               setState({ kind: "idle" });
             }}
           />
+          <label htmlFor="invite-role">{labels.inviteRole}</label>
+          <select
+            id="invite-role"
+            value={role}
+            onChange={(event) => setRole(event.target.value as Role)}
+          >
+            <option value="member">{labels.roles.member}</option>
+            <option value="admin">{labels.roles.admin}</option>
+          </select>
         </p>
       )}
 
       <p className="actions">
-        {taken >= seats ? null : (
+        {canAdminister && taken < seats ? (
           <button className="button" onClick={invite} disabled={working || field.trim() === ""}>
             {working ? labels.inviting : labels.invite}
           </button>
-        )}
+        ) : null}
         {message ? <span className="sub">{message}</span> : null}
       </p>
       <p className="sub">{labels.note}</p>

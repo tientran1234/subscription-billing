@@ -131,3 +131,84 @@ test("a workspace with every seat taken is not offered the form", async ({ page,
   // Nothing was written, so no seat is held by an invite that was refused.
   expect(await db.invitation.count({ where: { tenantId: workspace.tenantId } })).toBe(0);
 });
+
+test("a member is shown the roster and none of the controls over it", async ({
+  page,
+  workspace,
+}) => {
+  await sell(workspace, 3);
+
+  // Somebody else to hold the admin role, then the reader down to a member:
+  // the last admin cannot be demoted, which is the point of doing it in this
+  // order rather than simply editing the reader's row.
+  const admin = await db.user.create({
+    data: { email: `admin-${randomUUID()}@example.test` },
+  });
+  await db.membership.create({
+    data: { userId: admin.id, tenantId: workspace.tenantId, role: "admin" },
+  });
+  await db.membership.updateMany({
+    where: { tenantId: workspace.tenantId, userId: { not: admin.id } },
+    data: { role: "member" },
+  });
+
+  await page.goto("/en/account");
+  // The roster is theirs to read: it is the bill they are sharing.
+  await expect(page.getByText("2 of 3 seats taken.")).toBeVisible();
+  await expect(page.getByText(admin.email)).toBeVisible();
+
+  // And nothing on it to press, bar leaving, which is not administrative.
+  await expect(page.getByText("You can read this workspace but not change it.")).toBeVisible();
+  await expect(page.getByLabel("Email address")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Remove" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Make admin" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Make member" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Leave" })).toBeVisible();
+
+  // The routes refuse the same things for a caller that did not come through
+  // the page, which is what makes the withheld buttons a courtesy rather than
+  // the enforcement.
+  const invited = await page.request.post("/api/invites", {
+    data: { email: `nobody-${randomUUID()}@example.test` },
+  });
+  expect(invited.status()).toBe(403);
+  expect(await invited.json()).toMatchObject({ reason: "not_an_admin" });
+
+  const promoted = await page.request.patch(`/api/members/${admin.id}`, {
+    data: { role: "member" },
+  });
+  expect(promoted.status()).toBe(403);
+
+  const removed = await page.request.delete(`/api/members/${admin.id}`);
+  expect(removed.status()).toBe(403);
+  expect(await removed.json()).toMatchObject({ reason: "not_an_admin" });
+});
+
+test("a member may still take themselves out of a workspace", async ({ page, workspace }) => {
+  const admin = await db.user.create({
+    data: { email: `admin-${randomUUID()}@example.test` },
+  });
+  await db.membership.create({
+    data: { userId: admin.id, tenantId: workspace.tenantId, role: "admin" },
+  });
+  const reader = await db.membership.findFirstOrThrow({
+    where: { tenantId: workspace.tenantId, userId: { not: admin.id } },
+  });
+  await db.membership.update({
+    where: { userId_tenantId: { userId: reader.userId, tenantId: workspace.tenantId } },
+    data: { role: "member" },
+  });
+
+  await page.goto("/en/account");
+  await page.getByRole("button", { name: "Leave" }).click();
+
+  // Out on their own request: somebody invited into a workspace they no longer
+  // work with does not have to ask the people still in it to let them out.
+  await expect(async () => {
+    expect(
+      await db.membership.count({
+        where: { tenantId: workspace.tenantId, userId: reader.userId },
+      }),
+    ).toBe(0);
+  }).toPass();
+});

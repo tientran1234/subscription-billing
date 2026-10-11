@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { PLANS } from "@/domain/entitlements";
 import { resolveTenant } from "@/domain/membership";
+import { canChangeWorkspace } from "@/domain/role";
 import { SUBSCRIPTION_STATUSES } from "@/domain/subscription";
 import {
   KEY_STATES,
@@ -101,9 +102,11 @@ export default async function AdminPage({
     );
   }
 
-  // The same rule every route runs, from the same pure function. There are no
-  // roles here, so "admin" means the workspace this account already belongs to:
-  // the lists below are scoped to that tenant in SQL, not by this page.
+  // The same rule every route runs, from the same pure function. "Admin" in
+  // this page's name is still the workspace this account belongs to rather
+  // than a view across tenants — the lists below are scoped to that tenant in
+  // SQL, not by this page — and everybody in it may read them. The one thing
+  // here that changes anything is the replay form, which takes the role.
   const resolved = resolveTenant(principal, (await headers()).get(TENANT_HEADER));
   if (!resolved.ok) {
     return (
@@ -249,18 +252,22 @@ export default async function AdminPage({
         ) : null}
       </section>
 
-      <ReplayForm
-        labels={{
-          heading: t("replay"),
-          note: t("replayNote"),
-          eventId: t("replayEventId"),
-          action: t("replayAction"),
-          sending: t("replaySending"),
-          done: t("replayDone"),
-          refused: t("replayRefused"),
-          failed: t("replayFailed"),
-        }}
-      />
+      {canChangeWorkspace(resolved.role) ? (
+        <ReplayForm
+          labels={{
+            heading: t("replay"),
+            note: t("replayNote"),
+            eventId: t("replayEventId"),
+            action: t("replayAction"),
+            sending: t("replaySending"),
+            done: t("replayDone"),
+            refused: t("replayRefused"),
+            failed: t("replayFailed"),
+          }}
+        />
+      ) : (
+        <p className="sub">{t("replayReadOnly")}</p>
+      )}
 
       <p className="sub" style={{ marginTop: 40 }}>
         {t("scopeNote")}

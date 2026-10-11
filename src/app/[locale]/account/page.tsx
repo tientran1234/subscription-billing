@@ -4,6 +4,7 @@ import Link from "next/link";
 import { PLANS, type PlanKey } from "@/domain/entitlements";
 import { INVITE_TTL_DAYS } from "@/domain/invite";
 import { resolveTenant } from "@/domain/membership";
+import { canChangeWorkspace } from "@/domain/role";
 import { noticeLocaleFor } from "@/domain/notice-locale";
 import { QUOTE_TTL_SECONDS } from "@/domain/plan-change";
 import { auth } from "@/lib/auth";
@@ -167,11 +168,13 @@ export default async function AccountPage({
         members={roster.members.map((member) => ({
           userId: member.userId,
           email: member.email,
+          role: member.role,
           isYou: member.userId === principal.userId,
         }))}
         invites={roster.invites.map((invite) => ({
           id: invite.id,
           email: invite.email,
+          role: invite.role,
           // Composed here, in the page's locale: the client has the reader's
           // browser but not the locale the URL was fetched with, and a date
           // rendered from each of those is a date that changes on a refresh.
@@ -184,6 +187,10 @@ export default async function AccountPage({
           }),
         }))}
         seats={roster.seats}
+        // Off the membership this request resolved, which is the same answer
+        // the routes refuse with: a page that decided for itself who may
+        // change things would be a second rule to go stale.
+        canAdminister={canChangeWorkspace(resolved.role)}
         labels={{
           heading: t("peopleTitle"),
           seats: t("peopleSeats", {
@@ -198,8 +205,20 @@ export default async function AccountPage({
           inviting: t("peopleInviting"),
           sent: t("peopleInviteSent"),
           remove: t("peopleRemove"),
+          leave: t("peopleLeave"),
           removing: t("peopleRemoving"),
           withdraw: t("peopleWithdraw"),
+          // Written out rather than folded over the roles, so adding one to
+          // src/domain/role.ts is a compile error here instead of a blank cell.
+          roles: {
+            admin: t("peopleRoleAdmin"),
+            member: t("peopleRoleMember"),
+          },
+          makeAdmin: t("peopleMakeAdmin"),
+          makeMember: t("peopleMakeMember"),
+          savingRole: t("peopleRoleSaving"),
+          inviteRole: t("peopleInviteRole"),
+          readOnly: t("peopleReadOnly"),
           full: t("peopleFull"),
           failed: t("peopleFailed"),
           note: t("peopleNote", { days: INVITE_TTL_DAYS }),
@@ -214,6 +233,7 @@ export default async function AccountPage({
             send_failed: t("peopleSendFailed"),
             last_member: t("peopleLastMember"),
             last_admin: t("peopleLastAdmin"),
+            not_an_admin: t("peopleNotAnAdmin"),
             not_a_member: t("peopleFailed"),
           },
         }}
