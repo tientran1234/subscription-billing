@@ -52,3 +52,31 @@ export async function meter(
 
   return { used, limit, allowed: used <= limit };
 }
+
+/**
+ * Give back a unit counted for a call that produced nothing.
+ *
+ * Counting first and giving back is the awkward way round, and it is the only
+ * way round that works: the quota and the spend cap are decided from the
+ * counter, so a call metered after the fact is a call that was let through on
+ * a figure taken before it — and two of those racing both pass a ceiling only
+ * one of them was inside.
+ *
+ * Conditional on the row holding the units, so the decrement is an
+ * affected-row count rather than a read and a write: a period with nothing in
+ * it, or one already given back, loses the `where` instead of counting
+ * backwards past zero. A counter the overage job reads is a figure on an
+ * invoice, and a negative one would discount the month.
+ */
+export async function refund(
+  tenantId: string,
+  feature: string,
+  n = 1,
+  now = new Date(),
+): Promise<boolean> {
+  const { count } = await db.usageCounter.updateMany({
+    where: { tenantId, feature, period: currentPeriod(now), used: { gte: n } },
+    data: { used: { decrement: n } },
+  });
+  return count === 1;
+}

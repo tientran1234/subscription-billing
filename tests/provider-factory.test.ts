@@ -4,9 +4,11 @@
  * would be one unset environment away from giving paid features to everyone.
  */
 import { afterEach, describe, expect, it } from "vitest";
+import { AnthropicProvider } from "@/providers/anthropic";
+import { FakeAssistantProvider } from "@/providers/fake-assistant";
 import { FakeProvider } from "@/providers/fake";
 import { StripeProvider } from "@/providers/stripe";
-import { billingProvider } from "@/providers";
+import { assistantProvider, billingProvider } from "@/providers";
 
 Object.assign(process.env, {
   DATABASE_URL: process.env.DATABASE_URL ?? "postgresql://x/y",
@@ -16,12 +18,14 @@ Object.assign(process.env, {
   STRIPE_PRICE_SCALE: "price_scale",
   STRIPE_PRICE_OVERAGE: "price_overage",
   APP_URL: "http://localhost:3000",
+  ANTHROPIC_API_KEY: "sk-ant-x",
 });
 
 const nodeEnv = process.env.NODE_ENV;
 
 afterEach(() => {
   delete process.env.BILLING_PROVIDER;
+  delete process.env.ASSISTANT_PROVIDER;
   Object.assign(process.env, { NODE_ENV: nodeEnv });
 });
 
@@ -61,5 +65,32 @@ describe("provider factory", () => {
     await expect(provider.verifyWebhook(body, signed)).resolves.toMatchObject({
       providerEventId: "evt_1",
     });
+  });
+});
+
+/**
+ * The assistant's adapter, held to the same two rules: the real model unless
+ * something asks for the fake by name, and never the fake in production.
+ */
+describe("assistant provider factory", () => {
+  it("hands out the real model when nothing asks otherwise", () => {
+    expect(assistantProvider()).toBeInstanceOf(AnthropicProvider);
+  });
+
+  it("hands out the real model for any value that is not `fake`", () => {
+    process.env.ASSISTANT_PROVIDER = "anthropic";
+    expect(assistantProvider()).toBeInstanceOf(AnthropicProvider);
+  });
+
+  it("hands out the scripted assistant only when asked for it by name", () => {
+    process.env.ASSISTANT_PROVIDER = "fake";
+    expect(assistantProvider()).toBeInstanceOf(FakeAssistantProvider);
+  });
+
+  // It answers from a template. A deployment that reached it would meter a
+  // paid feature and charge for a reply nobody wrote.
+  it("refuses the scripted assistant in production", () => {
+    Object.assign(process.env, { NODE_ENV: "production", ASSISTANT_PROVIDER: "fake" });
+    expect(() => assistantProvider()).toThrow(/production/);
   });
 });

@@ -7,8 +7,10 @@
  * unit is billed for a message and given back when there was none.
  */
 import { describe, expect, it } from "vitest";
+import type Anthropic from "@anthropic-ai/sdk";
 import { billsAUnit, type AssistantReply, type IAssistantProvider } from "@/domain/assistant";
 import { FakeAssistantProvider } from "@/providers/fake-assistant";
+import { replyFrom } from "@/providers/anthropic";
 
 describe("what a reply bills", () => {
   it("bills the unit for a message", () => {
@@ -74,5 +76,103 @@ describe("fake assistant", () => {
   it("answers deterministically, so a suite can assert on the reply", async () => {
     const reply = await new FakeAssistantProvider().reply({ prompt: "hello" });
     expect(reply).toEqual({ outcome: "answered", text: "(fake) you asked: hello" });
+  });
+});
+
+/**
+ * The model's replies, mapped. Hand-built rather than recorded, because the
+ * two that decide whether a customer is billed are the two a model will not
+ * produce on request: a refusal, and a response carrying no answer at all.
+ */
+const text = (value: string): Anthropic.Beta.Messages.BetaContentBlock => ({
+  type: "text",
+  text: value,
+  citations: null,
+});
+
+const thinking = (): Anthropic.Beta.Messages.BetaContentBlock => ({
+  type: "thinking",
+  thinking: "",
+  signature: "sig",
+});
+
+/** A refusal's details. Only the category is read; the rest is the SDK's shape. */
+const refusal = (
+  category: Anthropic.Beta.Messages.BetaRefusalStopDetails["category"],
+): Anthropic.Beta.Messages.BetaRefusalStopDetails => ({
+  type: "refusal",
+  category,
+  explanation: null,
+  fallback_credit_token: null,
+  fallback_has_prefill_claim: null,
+  recommended_model: null,
+});
+
+describe("mapping a model reply", () => {
+  it("reads a message off the text blocks", () => {
+    expect(
+      replyFrom({ content: [text("you are on Pro.")], stop_reason: "end_turn", stop_details: null }),
+    ).toEqual({ outcome: "answered", text: "you are on Pro." });
+  });
+
+  it("joins a message that came back in pieces", () => {
+    expect(
+      replyFrom({
+        content: [text("you are on "), text("Pro.")],
+        stop_reason: "end_turn",
+        stop_details: null,
+      }),
+    ).toEqual({ outcome: "answered", text: "you are on Pro." });
+  });
+
+  // Thinking is on by default on this model and its text is empty unless asked
+  // for. Counting a block that is not an answer as one would bill the customer
+  // for a reply that renders as nothing.
+  it("ignores everything that is not a text block", () => {
+    expect(
+      replyFrom({
+        content: [thinking(), text("you are on Pro.")],
+        stop_reason: "end_turn",
+        stop_details: null,
+      }),
+    ).toEqual({ outcome: "answered", text: "you are on Pro." });
+  });
+
+  // A refusal is a successful response whose content carries no answer, so the
+  // stop reason has to be read before the content is.
+  it("reads a refusal as a decline, with the category it names", () => {
+    expect(
+      replyFrom({ content: [], stop_reason: "refusal", stop_details: refusal("cyber") }),
+    ).toEqual({ outcome: "declined", category: "cyber" });
+  });
+
+  it("declines without a category for a refusal that names none", () => {
+    expect(
+      replyFrom({ content: [], stop_reason: "refusal", stop_details: refusal(null) }),
+    ).toEqual({ outcome: "declined", category: null });
+  });
+
+  it("declines a response that ended well and carries no answer", () => {
+    expect(
+      replyFrom({ content: [thinking()], stop_reason: "end_turn", stop_details: null }),
+    ).toEqual({ outcome: "declined", category: null });
+  });
+
+  it("declines a response whose only answer is whitespace", () => {
+    expect(
+      replyFrom({ content: [text("  \n ")], stop_reason: "end_turn", stop_details: null }),
+    ).toEqual({ outcome: "declined", category: null });
+  });
+
+  // Truncation is not a failure: the customer has a message, just a clipped
+  // one, and the unit it cost them bought it.
+  it("bills a message the model ran out of room to finish", () => {
+    const reply = replyFrom({
+      content: [text("you are on Pro and")],
+      stop_reason: "max_tokens",
+      stop_details: null,
+    });
+    expect(reply).toEqual({ outcome: "answered", text: "you are on Pro and" });
+    expect(billsAUnit(reply)).toBe(true);
   });
 });

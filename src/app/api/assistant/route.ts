@@ -11,15 +11,22 @@
  * All three derive from rows that change on the next webhook or revocation, so
  * a cancelled tenant or a revoked key loses access on the next request — no
  * background job, nothing to fall out of sync.
+ *
+ * Then the model, behind src/domain/assistant.ts's port. The unit is already
+ * counted by the time it is asked, because the two gates above are decided
+ * from that count, so the last thing this route does is give the unit back
+ * when the call produced no message — see `billsAUnit`.
  */
 import { z } from "zod";
+import { billsAUnit } from "@/domain/assistant";
 import { canUse, quotaFor } from "@/domain/entitlements";
 import { OVERAGE_QUOTA, overageUnits } from "@/domain/overage";
 import { withinSpendCap } from "@/domain/spend-cap";
+import { askAssistant } from "@/server/assistant";
 import { entitlementsForTenant } from "@/server/billing.service";
 import { notifyCapWarning } from "@/server/cap-warning";
 import { spendCapFor } from "@/server/spend-cap";
-import { meter } from "@/server/usage";
+import { meter, refund } from "@/server/usage";
 import { withApiKey } from "@/server/with-api-key";
 import { env } from "@/lib/env";
 
@@ -86,10 +93,35 @@ export const POST = withApiKey("assistant:use", async (request, { tenantId }) =>
     }
   }
 
-  // Swap this for a real model call. Everything above is the part that has to
-  // be right before a model call is worth making.
+  const reply = await askAssistant({ prompt: parsed.data.prompt });
+
+  if (!billsAUnit(reply)) {
+    // Nothing was produced, so the unit counted on the way in goes back before
+    // anything is said to the caller: the counter is what the month is billed
+    // from, and leaving it standing would put a message the customer never
+    // received onto their invoice.
+    //
+    // Only this counter. The key's own quota, metered in `withApiKey`, is a
+    // limit the customer put on one of their keys and costs nothing — what is
+    // given back here is money.
+    await refund(tenantId, OVERAGE_QUOTA);
+  }
+
+  if (reply.outcome === "unavailable") {
+    // Ours rather than the caller's, and worth trying again — which is the
+    // whole reason this is a different status from the decline below.
+    return Response.json({ error: "the assistant is unavailable" }, { status: 502 });
+  }
+
+  if (reply.outcome === "declined") {
+    return Response.json(
+      { error: "the assistant declined to answer", category: reply.category },
+      { status: 422 },
+    );
+  }
+
   return Response.json({
-    reply: `(stub) you asked: ${parsed.data.prompt}`,
+    reply: reply.text,
     planKey: entitlements.planKey,
     quota: usage,
     // What this month has run past the quota so far, which is what the next

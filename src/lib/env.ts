@@ -35,9 +35,21 @@ const authSchema = mailSchema.extend({
   AUTH_SECRET: z.string().min(1),
 });
 
+/**
+ * The model credential, parsed on its own for the same reason the mail
+ * settings are: a deployment that has not wired the assistant up yet should
+ * still check out, bill and write to its customers. A missing key is then one
+ * route's problem, and that route already has an answer for a model it cannot
+ * reach — the call is unavailable and the metered unit goes back.
+ */
+const assistantSchema = z.object({
+  ANTHROPIC_API_KEY: z.string().min(1),
+});
+
 let cached: z.infer<typeof schema> | null = null;
 let cachedAuth: z.infer<typeof authSchema> | null = null;
 let cachedMail: z.infer<typeof mailSchema> | null = null;
+let cachedAssistant: z.infer<typeof assistantSchema> | null = null;
 
 export function env() {
   if (!cached) cached = schema.parse(process.env);
@@ -52,6 +64,11 @@ export function authEnv() {
 export function mailEnv() {
   if (!cachedMail) cachedMail = mailSchema.parse(process.env);
   return cachedMail;
+}
+
+export function assistantEnv() {
+  if (!cachedAssistant) cachedAssistant = assistantSchema.parse(process.env);
+  return cachedAssistant;
 }
 
 /** Provider-side price id for a plan. Free has no price — it never checks out. */

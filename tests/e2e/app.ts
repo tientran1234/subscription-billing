@@ -17,6 +17,10 @@ export const BASE_URL = `http://localhost:${PORT}`;
  */
 export const APP_ENV: Record<string, string> = {
   BILLING_PROVIDER: "fake",
+  // Same reasoning as the gateway: the specs drive the quota, the spend cap
+  // and the entitlement drop through /api/assistant, and there is no model
+  // account behind CI for the call at the end of it to reach.
+  ASSISTANT_PROVIDER: "fake",
   STRIPE_SECRET_KEY: "sk_test_e2e",
   STRIPE_WEBHOOK_SECRET: "whsec_e2e",
   STRIPE_PRICE_PRO: "price_e2e_pro",
