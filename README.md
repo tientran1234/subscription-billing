@@ -63,6 +63,24 @@ Stripe retry something that will never succeed.
 `UPDATE ... SET used = used + 1 RETURNING used`, so two concurrent requests
 cannot both read 49 and both write 50.
 
+**A call that produced no message is given its unit back.**
+The counter has to be incremented before the model is asked, because the quota
+and the spend cap are decided from it and a figure read before its own
+increment is one two concurrent calls can both pass. So the unit is counted on
+the way in and given back on the way out when nothing came of the call: a
+refusal, a reply with no text in it, a provider that could not be reached, a
+credential this deployment never set. `src/domain/assistant.ts` holds that rule
+as one predicate rather than a branch per outcome, because the counter is what
+the overage job bills the month from and the question it answers is single — was
+a message produced? The decrement is conditional on the row holding the units,
+so a month that counted nothing loses the `where` instead of counting backwards:
+a negative counter would discount an invoice rather than leave one message off
+it. A decline costs us the tokens the model spent declining, which is the right
+way round — the alternative is a line on a bill the customer cannot reconcile
+against anything they were ever shown. The key's own quota is left where it is:
+it limits how often one of the customer's keys may be used and costs nothing,
+and what is given back here is money.
+
 **Cancelling happens at Stripe, not here.**
 The account page hands the customer a link into Stripe's billing portal, where
 they cancel, resume or update a card; the change comes back as a webhook like
@@ -503,6 +521,8 @@ in CI; the magic link has its own tests, and billing is what this one is for.
 src/
   domain/          pure, no I/O — the rules, and the only place they are written
     billing-event.ts   IBillingProvider + neutral DTOs (the contract)
+    assistant.ts       IAssistantProvider + its outcomes, and which of them
+                       bills the unit the route counted
     subscription.ts    status enum + legal transitions + event mapping
     entitlements.ts    plans, features, quotas; entitlements as a pure function
     currency.ts        the currencies we sell in, and what a minor unit is worth
@@ -524,20 +544,23 @@ src/
     replay.ts          who may replay a provider event, and whose it has to be
     transactions.ts    cursor ordering and the filters the ledger may be read by
   providers/
-    index.ts       which adapter the routes get — Stripe unless asked otherwise
+    index.ts       which adapters the routes get — the real ones unless asked
     stripe.ts      the ONLY file importing `stripe`
     fake.ts        in-memory provider — full flow with no Stripe account
+    anthropic.ts   the ONLY file importing the model SDK
+    fake-assistant.ts  scripted replies — the gates with no model account
   emails/          react-email templates; HTML and plain text off one tree
     copy.ts            their words, in the reader's language, off the page messages
   server/
     billing.service.ts  the only place a subscription status changes
-    usage.ts            metered quota
+    usage.ts            metered quota, and the unit back for a call that failed
     usage-report.ts     one closed month of overage, reported at most once
     spend-cap.ts        the tenant's own ceiling, where null is an answer
     tenant-locale.ts    the language it reads, where null is a different answer
     dunning.ts          claim the event id, render, send — at most once
     cap-warning.ts      claim the month, render, send — at most once a month
     replay.ts           re-fetch one event, re-apply it, record who asked
+    assistant.ts        ask whichever model this deployment is wired to
     mailer.ts           the SMTP seam, so tests can read what was composed
     with-session.ts     session → tenant, for human callers
     workspaces.ts       the names on the workspaces a session may choose between
@@ -550,7 +573,8 @@ src/
     api/checkout         start a subscription (tenant from the session)
     api/keys             mint / revoke API keys (hash stored, raw shown once)
     api/assistant        a paid feature: api key → scope → entitlement → quota,
-                         and the mail when that quota's ceiling comes up
+                         the mail when that quota's ceiling comes up, and the
+                         model behind all of it
     api/portal           a link into Stripe's billing portal, for the caller's tenant
     api/plan-change      quote a proration, then change plan at the quoted price
     api/replay           re-apply one provider event by id, for the caller's tenant
@@ -697,5 +721,11 @@ on every push, and the end-to-end suite beside it in a job with a browser.
   overage rides the next invoice instead of September's. Lining the two up would
   mean counting the quota on the subscription's anniversary, which is a
   different product.
-- **A real model call.** `/api/assistant` returns a stub. The entitlement and
-  quota gates in front of it are the part that has to be right first.
+- **A conversation, or a streamed one.** A call is one prompt and one reply,
+  and the reply arrives whole. Nothing here keeps a thread, so a question about
+  the answer before it has to carry its own context; and a caller waiting on a
+  long answer waits for the whole of it. Both belong to whatever product is
+  sold on top of this one. A thread is rows this slice has no use for, and
+  streaming would mean deciding what a connection dropped halfway through has
+  billed — the one question the counter in front of the call answers in a
+  single place, and would then answer in two.

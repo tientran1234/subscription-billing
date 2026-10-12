@@ -3,10 +3,10 @@ import { APP_ENV, BASE_URL, PORT } from "./tests/e2e/app";
 
 /**
  * End-to-end: a real Next server, a real Postgres, the real routes, driven
- * through a browser. Only the payment gateway is swapped for the in-memory
- * adapter — CI has no Stripe account, and the guarantees being checked here
- * (a checkout becoming access, a replay changing nothing, access ending with
- * the subscription) are this application's, not Stripe's.
+ * through a browser. Only the payment gateway and the model are swapped for
+ * in-memory adapters — CI has an account with neither, and the guarantees being
+ * checked here (a checkout becoming access, a replay changing nothing, access
+ * ending with the subscription) are this application's, not theirs.
  *
  * Needs a database, like the integration tests: `pnpm db:up && pnpm db:push`.
  */
