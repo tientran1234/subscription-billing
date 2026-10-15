@@ -39,6 +39,7 @@ model Tenant {
   dunning       DunningNotice[]
   capNotices    CapNotice[]
   replays       EventReplay[]
+  roleGrants    RoleGrant[]
   createdAt     DateTime        @default(now())
 }
 
@@ -298,6 +299,39 @@ model EventReplay {
   requestedAt     DateTime @default(now())
 
   @@index([tenantId, requestedAt])
+}
+
+/// One role this workspace handed out: whom to, by whom, and when.
+///
+/// Append-only, and deliberately not keyed by the membership it describes. A
+/// role is a column that overwrites the one before, so this table is the only
+/// place the sequence of those writes survives — and a membership that is
+/// removed leaves its grants behind, because what the workspace wants to be
+/// able to say about somebody who was once an admin does not stop being true
+/// the day they leave.
+model RoleGrant {
+  id              String   @id @default(cuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// Who holds the role, and who gave it to them, as plain columns rather than
+  /// relations to User: an audit row has to outlive the accounts it names, and
+  /// each address is recorded as it was at the time — the way EventReplay
+  /// records the one that asked for a replay.
+  subjectUserId   String
+  subjectEmail    String
+  grantedByUserId String
+  grantedByEmail  String
+  /// The role granted, as one of the roles in src/domain/role.ts, read back
+  /// through `roleFrom` like every other copy of one.
+  ///
+  /// There is no column for the role it replaced. A write that granted the
+  /// role somebody already held is not recorded at all, so a row here always
+  /// means the role became this one — which is what makes the date on it the
+  /// date they became it rather than the date it was last confirmed.
+  role            String
+  grantedAt       DateTime @default(now())
+
+  @@index([tenantId, grantedAt])
 }
 
 /// Metered usage per tenant, per feature, per UTC month.
