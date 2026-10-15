@@ -243,6 +243,25 @@ column defaults to `admin` for the rows that predate it, whose people could
 already do everything. Both are read back through a narrowing function, so a
 value this build does not recognise is the role that may change nothing.
 
+Every role handed out is written down: whom to, by whom, and when. A role is a
+column and setting it overwrites the one before, so without a row of its own a
+workspace could say who may do what today and not when somebody became an admin
+or who made them one — the question asked after the change nobody meant to make.
+The grant goes in the same transaction as the membership it describes, by the
+invite path and the role-change path alike, so there is no window in which
+somebody holds a role nobody is recorded as giving them and a refused demotion
+leaves nothing behind. The actor comes off the session rather than the body, like
+the tenant, because a row whose grantor the caller could name is worth nothing.
+A write that leaves the role as it was records nothing, which is what makes the
+date beside a role the date it was given rather than the date it was last
+confirmed — the sole admin pressing "make admin" on their own row is a no-op the
+rule above deliberately allows. The rows have no relation to `User` and are not
+keyed by the membership: a workspace asking who made somebody an admin is
+usually asking about somebody who has since left. They are listed on the
+transactions page beside the replay audit, which is where this workspace's own
+ledger is read; nothing checks them, and nothing may — a permission that read the
+past rather than the column would be a second answer to who may act now.
+
 **A price is per currency, and the currency is chosen once.**
 A plan carries an amount per currency rather than one converted at read time:
 a rate that moves would reprice the catalogue between the page a customer read
@@ -539,6 +558,8 @@ src/
                        of them a picker's answer still resolves to
     role.ts            what they may do there, and what keeps a workspace
                        administrable while people come and go
+    role-history.ts    which of the writes that set a role is worth recording,
+                       and how far back the workspace is shown
     invite.ts          who may be offered a seat, and the one an invite holds
     dunning.ts         which status a customer is worth writing to about
     replay.ts          who may replay a provider event, and whose it has to be
@@ -560,6 +581,8 @@ src/
     dunning.ts          claim the event id, render, send — at most once
     cap-warning.ts      claim the month, render, send — at most once a month
     replay.ts           re-fetch one event, re-apply it, record who asked
+    role-history.ts     write down a role as it is granted, inside the caller's
+                        own transaction, and read the grants back
     assistant.ts        ask whichever model this deployment is wired to
     mailer.ts           the SMTP seam, so tests can read what was composed
     with-session.ts     session → tenant, for human callers
@@ -588,7 +611,7 @@ src/
     api/workspace        which workspaces this session may act for, and the one
                          this browser is looking at
     [locale]/            pricing, account and transactions pages, en + vi
-tests/               303 unit + 168 integration against real Postgres
+tests/               328 unit + 183 integration against real Postgres
   e2e/               Playwright: checkout, replay, the cancel drop, the plan
                      change, the invoice list, the spend cap, the seat an
                      invite holds
@@ -674,12 +697,15 @@ on every push, and the end-to-end suite beside it in a job with a browser.
   keep true rather than a rule to read. "Admin" on the transactions page is
   still not one of these: it means the workspace the caller belongs to, not a
   view across tenants, and there is no role here that sees past one workspace.
-- **The history of who could do what.** A role is a column, and setting it
-  overwrites the one before: a workspace cannot say when somebody became an
-  admin or who made them one. Every *use* of the role is attributable — a
-  replay records the account that asked for it, an invite records who sent it —
-  and keeping the grants as well would be an audit log on a write path that
-  exists because somebody was given the wrong role in the first place.
+- **A past for anything but the roles.** The grants are kept now, and nothing
+  else here is: a cap that moves, a plan that changes and a language that is
+  set each overwrite the column before them, and what they used to be is
+  readable only in the invoices and the notices that followed. Roles earned the
+  rows because they are the one setting whose *effect* is what somebody else may
+  do, so the question is asked about a person rather than about a figure. The
+  founding admin is not among them either — the account that opened a workspace
+  holds the role from the moment the workspace existed, which is nobody's grant
+  to record, and the membership's own date says when.
 - **Two workspaces open at once, or a workspace in the url.** The choice a
   picker makes is one cookie for the whole site, so a second tab is the same
   workspace as the first and switching in one switches both — and a page's
