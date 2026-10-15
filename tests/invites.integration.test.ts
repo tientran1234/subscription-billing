@@ -366,11 +366,16 @@ describe.skipIf(!hasDatabase)("removing a member", () => {
 describe.skipIf(!hasDatabase)("setting what a member may do", () => {
   let tenantId: string;
   let ownerId: string;
+  let ownerEmail: string;
+
+  /** The workspace's admin, who is the one making every change below. */
+  const owner = () => ({ userId: ownerId, email: ownerEmail });
 
   beforeEach(async () => {
     await db.tenant.deleteMany();
     await db.user.deleteMany();
     const email = `owner-${randomUUID()}@example.test`;
+    ownerEmail = email;
     tenantId = (await db.tenant.create({ data: { email, name: "Acme" } })).id;
     ownerId = (await db.user.create({ data: { email } })).id;
     await db.membership.create({ data: { userId: ownerId, tenantId, role: "admin" } });
@@ -393,16 +398,16 @@ describe.skipIf(!hasDatabase)("setting what a member may do", () => {
 
   it("promotes a member, and demotes them again once there is another admin", async () => {
     const second = await join("member");
-    expect(await setMemberRole(tenantId, second, "admin")).toEqual({ ok: true });
+    expect(await setMemberRole(tenantId, second, "admin", owner())).toEqual({ ok: true });
     expect(await roleOf(second)).toBe("admin");
 
-    expect(await setMemberRole(tenantId, second, "member")).toEqual({ ok: true });
+    expect(await setMemberRole(tenantId, second, "member", owner())).toEqual({ ok: true });
     expect(await roleOf(second)).toBe("member");
   });
 
   it("refuses to demote the last admin, and leaves the row alone", async () => {
     await join("member");
-    expect(await setMemberRole(tenantId, ownerId, "member")).toEqual({
+    expect(await setMemberRole(tenantId, ownerId, "member", owner())).toEqual({
       ok: false,
       reason: "last_admin",
     });
@@ -413,8 +418,8 @@ describe.skipIf(!hasDatabase)("setting what a member may do", () => {
 
   it("lets the last admin hand the role over and then step down", async () => {
     const second = await join("member");
-    expect(await setMemberRole(tenantId, second, "admin")).toEqual({ ok: true });
-    expect(await setMemberRole(tenantId, ownerId, "member")).toEqual({ ok: true });
+    expect(await setMemberRole(tenantId, second, "admin", owner())).toEqual({ ok: true });
+    expect(await setMemberRole(tenantId, ownerId, "member", owner())).toEqual({ ok: true });
     expect(await roleOf(ownerId)).toBe("member");
   });
 
@@ -428,14 +433,14 @@ describe.skipIf(!hasDatabase)("setting what a member may do", () => {
     const stranger = await db.user.create({
       data: { email: `stranger-${randomUUID()}@example.test` },
     });
-    expect(await setMemberRole(tenantId, stranger.id, "admin")).toEqual({
+    expect(await setMemberRole(tenantId, stranger.id, "admin", owner())).toEqual({
       ok: false,
       reason: "not_a_member",
     });
   });
 
   it("is a no-op, not a refusal, when the role is already the one asked for", async () => {
-    expect(await setMemberRole(tenantId, ownerId, "admin")).toEqual({ ok: true });
+    expect(await setMemberRole(tenantId, ownerId, "admin", owner())).toEqual({ ok: true });
     expect(await roleOf(ownerId)).toBe("admin");
   });
 });

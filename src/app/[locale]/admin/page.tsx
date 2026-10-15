@@ -3,7 +3,7 @@ import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { PLANS } from "@/domain/entitlements";
-import { canChangeWorkspace } from "@/domain/role";
+import { canChangeWorkspace, type Role } from "@/domain/role";
 import { SUBSCRIPTION_STATUSES } from "@/domain/subscription";
 import {
   KEY_STATES,
@@ -16,6 +16,7 @@ import {
   type Cursor,
 } from "@/domain/transactions";
 import { auth } from "@/lib/auth";
+import { roleHistoryOf } from "@/server/role-history";
 import { listKeyUsage, listSubscriptions } from "@/server/transactions";
 import { currentPeriod } from "@/server/usage";
 import { principalFrom, resolveRequestTenant } from "@/server/with-session";
@@ -143,10 +144,17 @@ export default async function AdminPage({
   const state = parseKeyState(first("state"));
   const period = parsePeriod(first("period"), currentPeriod());
 
-  const [subscriptions, keys] = await Promise.all([
+  const [subscriptions, keys, grants] = await Promise.all([
     listSubscriptions({ tenantId, filter, cursor: cursorFrom(first("subAfter")), limit }),
     listKeyUsage({ tenantId, state, period, cursor: cursorFrom(first("keyAfter")), limit }),
+    // Unfiltered and uncursored, unlike the two above: it is a window of the
+    // last few changes rather than a ledger to walk. See ROLE_HISTORY_WINDOW.
+    roleHistoryOf(tenantId),
   ]);
+
+  // Written out rather than folded over the roles, so adding one to
+  // src/domain/role.ts is a compile error here instead of a blank cell.
+  const roleNames: Record<Role, string> = { admin: t("roleAdmin"), member: t("roleMember") };
 
   return (
     <main>
@@ -257,6 +265,38 @@ export default async function AdminPage({
         {keys.nextCursor ? (
           <Link href={href(locale, current, { keyAfter: keys.nextCursor })}>{t("next")}</Link>
         ) : null}
+      </section>
+
+      <section className="list">
+        <h2>{t("roles")}</h2>
+        <p className="sub">{t("rolesNote")}</p>
+
+        {grants.length === 0 ? (
+          <p className="sub">{t("noRoles")}</p>
+        ) : (
+          <table className="rows">
+            <thead>
+              <tr>
+                <th>{t("granted")}</th>
+                <th>{t("person")}</th>
+                <th>{t("role")}</th>
+                <th>{t("grantedBy")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {grants.map((grant) => (
+                <tr key={grant.id}>
+                  <td>{day(grant.grantedAt)}</td>
+                  {/* The addresses as they were recorded, which is the point:
+                      either account may be gone by the time this is read. */}
+                  <td>{grant.subjectEmail}</td>
+                  <td>{roleNames[grant.role]}</td>
+                  <td>{grant.grantedByEmail}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </section>
 
       {canChangeWorkspace(resolved.role) ? (

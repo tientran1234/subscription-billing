@@ -41,7 +41,7 @@ const Body = z.object({ role: z.enum(ROLES) }).strict();
 
 /** Change somebody's role. */
 export const PATCH = withSession(
-  async (request, { tenantId }, ctx: { params: Promise<{ userId: string }> }) => {
+  async (request, { tenantId, userId: actorId, email }, ctx: { params: Promise<{ userId: string }> }) => {
     const { userId } = await ctx.params;
     const parsed = Body.safeParse(await request.json().catch(() => null));
     if (!parsed.success) {
@@ -51,7 +51,13 @@ export const PATCH = withSession(
       );
     }
 
-    const result = await setMemberRole(tenantId, userId, roleFrom(parsed.data.role));
+    // Who is granting it, off the session rather than the body — the same
+    // place the tenant comes from, and for the same reason: an audit row whose
+    // actor the caller could name would be worth nothing.
+    const result = await setMemberRole(tenantId, userId, roleFrom(parsed.data.role), {
+      userId: actorId,
+      email,
+    });
     if (!result.ok) {
       const refusal = REFUSALS[result.reason];
       return Response.json(

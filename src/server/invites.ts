@@ -27,6 +27,7 @@ import { checkRoleChange, roleFrom, type Role, type RoleChangeRefusal } from "@/
 import { renderInviteEmail } from "@/emails/render";
 import { entitlementsForTenant } from "./billing.service";
 import { smtpMailer, type Mailer } from "./mailer";
+import { recordRoleGrant } from "./role-history";
 import { membersOf, openInvitesOf, rosterFor, type InviteView, type MemberView } from "./roster";
 
 export interface InviteMemberInput {
@@ -174,6 +175,12 @@ export async function acceptOpenInvites(user: {
         data: { acceptedAt: now, acceptedByUserId: user.userId },
       });
       if (count !== 1) return false;
+      // Read before the upsert because the two cases below record different
+      // things, and afterwards there is no telling them apart.
+      const held = await tx.membership.findUnique({
+        where: { userId_tenantId: { userId: user.userId, tenantId: candidate.tenantId } },
+        select: { role: true },
+      });
       // An upsert because the membership is what the invite is for, not a
       // second fact to be surprised by: an address somehow already in the
       // workspace that invited it should end up with one membership rather
@@ -192,6 +199,22 @@ export async function acceptOpenInvites(user: {
         },
         update: {},
       });
+      // In the same transaction as the membership, so a workspace cannot end
+      // up with somebody holding a role nobody is recorded as giving them.
+      // Only the membership this accept created is a grant: the already-there
+      // case left the role somebody else set alone, so nothing was handed over
+      // here to write down — whoever did it is already further up this list.
+      if (!held) {
+        await recordRoleGrant(tx, {
+          tenantId: candidate.tenantId,
+          subject: { userId: user.userId, email: user.email },
+          // The invite's own columns: the seat was offered by whoever sent it,
+          // and it is their grant even though the sign-in is what completes it.
+          grantedBy: { userId: candidate.invitedByUserId, email: candidate.invitedByEmail },
+          role: roleFrom(candidate.role),
+          previousRole: null,
+        });
+      }
       return true;
     });
 
@@ -272,6 +295,7 @@ export async function setMemberRole(
   tenantId: string,
   userId: string,
   role: Role,
+  grantedBy: { userId: string; email: string },
 ): Promise<SetRoleResult> {
   for (let attempt = 0; ; attempt += 1) {
     try {
@@ -279,7 +303,9 @@ export async function setMemberRole(
         async (tx): Promise<SetRoleResult> => {
           const rows = await tx.membership.findMany({
             where: { tenantId },
-            select: { userId: true, role: true },
+            // The address comes back for the grant below, which records it as
+            // it reads now rather than as a row to join to later.
+            select: { userId: true, role: true, user: { select: { email: true } } },
           });
           const members = rows.map((row) => ({
             userId: row.userId,
@@ -293,6 +319,23 @@ export async function setMemberRole(
             where: { userId_tenantId: { userId, tenantId } },
             data: { role },
           });
+          // In the same transaction as the column, so the history cannot
+          // disagree with the role it describes — and inside the retry, so a
+          // transaction Postgres refused to serialise takes its grant back
+          // with it rather than leaving one for a change that never landed.
+          // `checkRoleChange` has already refused the user who is not in this
+          // workspace, so this narrows the row rather than deciding anything:
+          // the rule above stays the only place that says who may be set.
+          const subject = rows.find((row) => row.userId === userId);
+          if (subject) {
+            await recordRoleGrant(tx, {
+              tenantId,
+              subject: { userId, email: subject.user.email },
+              grantedBy,
+              role,
+              previousRole: roleFrom(subject.role),
+            });
+          }
           return { ok: true };
         },
         { isolationLevel: "Serializable" },
