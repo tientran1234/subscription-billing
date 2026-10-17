@@ -388,13 +388,15 @@ expire in minutes, so one minted at send time would be dead on arrival.
 
 **A cap warning is claimed per month, because there is no event to claim.**
 A ceiling the customer cannot see coming is a key that stops working
-mid-month, so `/api/assistant` writes to them twice: once at four fifths of the
+mid-month, so `/api/assistant` writes to them twice: once at a line below the
 cap, while the add-on is still serving calls and the ceiling can still be
-moved, and once on the first call it refuses. It is sent from that request and
+moved, and once on the first call it refuses. Where that first line sits is the
+workspace's own, and four fifths is only where it sits for one that has never
+said otherwise. It is sent from that request and
 not from a job, because the news is that a key has just started failing and a
 nightly sweep would say it a day late — and because the request already holds
-both figures, having metered the call and read the cap to decide whether to
-serve it. The claim is the same shape as a dunning notice's with the one part a
+the figures, having metered the call and read the cap and the line in one row
+to decide whether to serve it. The claim is the same shape as a dunning notice's with the one part a
 counter cannot borrow: nothing was delivered, so there is no event id to key
 it by. A counter that has crossed a line stays crossed for every call after it,
 and without a claim a workspace sitting at 81% of its cap would be mailed once
@@ -405,6 +407,27 @@ is what makes it news again. The mail is sent before the refusal is returned
 and its failures are swallowed, for the reason the dunning hook swallows
 them: a gate in front of a paid feature must not start refusing calls because
 a mail server is down.
+
+**The warning line is the customer's, in percent, with a floor and a ceiling
+of its own.** Four fifths is the wrong distance for two customers at once: one
+that can absorb a pause wants to hear late, and one that cannot wants the room
+to raise its ceiling before anything stops. So `capWarnPct` sits beside the cap
+on the tenant and `/api/cap-warning` moves it, as its own route and its own
+section on the account page — the two settings are written at different
+moments, and a body carrying both would make each save a statement about the
+other. It is a whole percent of the cap rather than a number of units, so it
+keeps its distance when the cap moves, and the figure stored is the figure
+typed: a fraction derived from it would be the nearest double to a quotient,
+and would put one workspace's line a unit off another's on the same ceiling.
+Null is the absence of an answer rather than a line at nothing, which is what
+every row from before the column carries, and what an emptied field asks for
+again. The bounds are 1 and 99 because both ends stop being a warning: at
+nothing it fires on the first unit past the quota, which a cap of zero already
+says on its own, and at a hundred it lands on the unit that is already being
+refused — the one moment the mail exists to beat. The request in front of a
+billable call reads the ceiling and the line from one row, so the rule in
+`domain/cap-warning.ts` stays pure and the calls nowhere near a warning cost
+no second query.
 
 **A notice is written in the language the workspace recorded, not the one a
 page was last rendered in.**
@@ -549,7 +572,8 @@ src/
                        where the next window of the archive starts
     overage.ts         what is owed past the quota, and when a month may be billed
     spend-cap.ts       the ceiling a workspace sets on what it will be billed
-    cap-warning.ts     which line of that ceiling is worth writing to them about
+    cap-warning.ts     which line of that ceiling is worth writing to them about,
+                       and where a workspace may move that line to
     notice-locale.ts   which language a workspace is written to in, its links,
                        and what the gateway's own customer is told
     plan-change.ts     when a plan may move, and how long a quoted price holds
@@ -576,7 +600,8 @@ src/
     billing.service.ts  the only place a subscription status changes
     usage.ts            metered quota, and the unit back for a call that failed
     usage-report.ts     one closed month of overage, reported at most once
-    spend-cap.ts        the tenant's own ceiling, where null is an answer
+    spend-cap.ts        the tenant's own ceiling and the line below it, where
+                        null is an answer in both
     tenant-locale.ts    the language it reads, where null is a different answer
     dunning.ts          claim the event id, render, send — at most once
     cap-warning.ts      claim the month, render, send — at most once a month
@@ -603,6 +628,7 @@ src/
     api/replay           re-apply one provider event by id, for the caller's tenant
     api/usage-report     report a closed month's overage, for a `billing:write` key
     api/spend-cap        read or move the ceiling on this workspace's overage
+    api/cap-warning      read or move the line below it the warning goes out at
     api/locale           read or set the language this workspace is written to in,
                          and tell the gateway to compose its own mail in it
     api/invites          the roster; offer a seat to an address, or withdraw it
@@ -611,7 +637,7 @@ src/
     api/workspace        which workspaces this session may act for, and the one
                          this browser is looking at
     [locale]/            pricing, account and transactions pages, en + vi
-tests/               328 unit + 183 integration against real Postgres
+tests/               337 unit + 191 integration against real Postgres
   e2e/               Playwright: checkout, replay, the cancel drop, the plan
                      change, the invoice list, the spend cap, the seat an
                      invite holds
@@ -726,15 +752,14 @@ on every push, and the end-to-end suite beside it in a job with a browser.
   live subscription from one currency to another, because the gateway will not:
   a customer who wants to be billed in the other one cancels and subscribes
   again. Local payment methods and per-currency tax are Stripe's to configure.
-- **A threshold the customer picks, or a word to a workspace with no ceiling.**
-  The warning goes out at four fifths of the cap, which is a constant in
-  `domain/cap-warning.ts` rather than a field beside the cap on the account
-  page: a second number to set is a second number to explain, and the month a
-  customer wanted it at nine tenths they can say so by raising the cap. A
-  workspace that set no cap hears nothing at all, because it has no line to
-  cross — what it would want warning about is the size of the bill, and turning
-  the counter into money needs the gateway's prices, which is the same reason
-  the cap counts units.
+- **A word to a workspace with no ceiling.** Where the warning goes out is the
+  customer's to set, but a workspace that set no cap hears nothing at all,
+  because it has no line to cross. What it would want
+  warning about is the size of the bill, and turning the counter into money
+  needs the gateway's prices, which is the same reason the cap counts units.
+  Nor is there a setting for no warning at all: the line has a default and a
+  floor, because a cap that stops serving calls in silence is the thing the
+  mail exists to prevent.
 - **A scheduler.** The overage job is a route a machine credential posts to;
   what calls it once a month is the deployment's cron. A single run across
   every workspace would need an operator credential, which is the same thing
