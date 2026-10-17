@@ -21,7 +21,7 @@
  */
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
-import { capWarningFor } from "@/domain/cap-warning";
+import { capWarningFor, type CapWarningAt } from "@/domain/cap-warning";
 import { isPlanKey, PLANS } from "@/domain/entitlements";
 import { noticeLocaleFor, noticePagesFor } from "@/domain/notice-locale";
 import { UNCAPPED, type SpendCap } from "@/domain/spend-cap";
@@ -49,6 +49,11 @@ export interface NotifyCapWarningInput {
   /** The ceiling they were measured against, as the route read it. */
   cap: SpendCap;
   /**
+   * The line below that ceiling the workspace asked to hear at, read with the
+   * cap in the same row. Omitted — or null — is the default line.
+   */
+  warnAt?: CapWarningAt;
+  /**
    * The plan to name in the mail. Passed in from the entitlements the gate
    * derived, so the mail cannot credit a workspace with a plan the call it is
    * about was not served under.
@@ -68,7 +73,7 @@ export interface NotifyCapWarningInput {
 export async function notifyCapWarning(
   input: NotifyCapWarningInput,
 ): Promise<CapWarningOutcome> {
-  const kind = capWarningFor(input.units, input.cap);
+  const kind = capWarningFor(input.units, input.cap, input.warnAt ?? null);
   // Decided before anything is read: the rule is pure, so every request that is
   // nowhere near a ceiling — which is nearly all of them — costs no query. The
   // second half of the condition is one `capWarningFor` has already made, and it

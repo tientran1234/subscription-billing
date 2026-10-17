@@ -43,6 +43,19 @@ describe.skipIf(!hasDatabase)("spend cap warnings", () => {
       mailer: using ?? mailer,
     });
 
+  /** The same call for a workspace that moved the line it hears at. */
+  const warnAtLine = (units: number, cap: number | null, warnAt: number) =>
+    notifyCapWarning({
+      tenantId,
+      units,
+      cap,
+      warnAt,
+      planKey: "pro",
+      appUrl: APP_URL,
+      period: PERIOD,
+      mailer,
+    });
+
   beforeEach(async () => {
     await db.tenant.deleteMany();
     mailer = new MemoryMailer();
@@ -134,6 +147,30 @@ describe.skipIf(!hasDatabase)("spend cap warnings", () => {
   it("stays quiet while the month is well inside its ceiling", async () => {
     expect(await warn(100, 500)).toBe("not_applicable");
     expect(mailer.sent).toHaveLength(0);
+  });
+
+  // The guarantee the line exists for, at the sender rather than in the rule:
+  // the figure the workspace chose is what decides whether this call is the one
+  // that writes to them.
+  it("writes at the line the workspace chose, not at the default", async () => {
+    // Half of 500 — a unit the default is still silent about, as the test
+    // above says of 100.
+    expect(await warnAtLine(250, 500, 50)).toBe("sent");
+
+    expect(mailer.sent).toHaveLength(1);
+    expect(mailer.sent[0].subject).toBe("You are close to your spend cap");
+  });
+
+  it("stays quiet below a line the workspace raised", async () => {
+    // 400 is where the default would have written; this workspace asked to
+    // hear at nine tenths instead, so nothing is sent and nothing is claimed —
+    // the month is still news when it reaches 450.
+    expect(await warnAtLine(400, 500, 90)).toBe("not_applicable");
+    expect(mailer.sent).toHaveLength(0);
+    expect(await db.capNotice.count()).toBe(0);
+
+    expect(await warnAtLine(450, 500, 90)).toBe("sent");
+    expect(mailer.sent).toHaveLength(1);
   });
 
   it("records the figures as they were, not as the cap was later moved to", async () => {

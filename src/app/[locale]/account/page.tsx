@@ -14,7 +14,12 @@ import {
   listInvoiceHistory,
 } from "@/server/billing.service";
 import { rosterView } from "@/server/invites";
-import { spendCapFor } from "@/server/spend-cap";
+import {
+  MAX_CAP_WARNING_PCT,
+  MIN_CAP_WARNING_PCT,
+  capWarningPct,
+} from "@/domain/cap-warning";
+import { capSettingsFor } from "@/server/spend-cap";
 import { tenantLocale } from "@/server/tenant-locale";
 import { principalFrom, resolveRequestTenant } from "@/server/with-session";
 import { WorkspaceChoice } from "../workspace-choice";
@@ -23,6 +28,7 @@ import { NoticeLocaleForm } from "./notice-locale-form";
 import { People } from "./people";
 import { PlanPicker } from "./plan-picker";
 import { PortalLink } from "./portal-link";
+import { CapWarningForm } from "./cap-warning-form";
 import { SpendCapForm } from "./spend-cap-form";
 
 /** Which window of the invoice archive the url is asking for. */
@@ -121,7 +127,9 @@ export default async function AccountPage({
   // The cap is drawn where it does something, which is where the quota is a
   // threshold: on a plan that stops at its allowance there is no bill to put a
   // ceiling under, and a form offering one would be a setting with no effect.
-  const cap = entitlements.meteredOverage ? await spendCapFor(resolved.tenantId) : undefined;
+  const capSettings = entitlements.meteredOverage
+    ? await capSettingsFor(resolved.tenantId)
+    : undefined;
 
   // The language a notice would go out in today, not the raw column: the
   // sentence under the form is about what we would send, and a workspace that
@@ -254,13 +262,13 @@ export default async function AccountPage({
         }}
       />
 
-      {cap === undefined ? null : (
+      {capSettings === undefined ? null : (
         <SpendCapForm
-          cap={cap}
+          cap={capSettings.cap}
           labels={{
             heading: t("capTitle"),
             units: t("capUnits"),
-            current: t("capCurrent", { count: cap ?? 0 }),
+            current: t("capCurrent", { count: capSettings.cap ?? 0 }),
             uncapped: t("capUncapped"),
             save: t("capSave"),
             saving: t("capSaving"),
@@ -269,6 +277,32 @@ export default async function AccountPage({
             invalid: t("capInvalid"),
             failed: t("capFailed"),
             note: t("capNote"),
+          }}
+        />
+      )}
+
+      {capSettings === undefined ? null : (
+        <CapWarningForm
+          warnAt={capSettings.warnAt}
+          capped={capSettings.cap !== null}
+          labels={{
+            heading: t("capWarnTitle"),
+            field: t("capWarnField"),
+            current: t("capWarnCurrent", { percent: capWarningPct(capSettings.warnAt) }),
+            byDefault: t("capWarnByDefault", {
+              percent: capWarningPct(capSettings.warnAt),
+            }),
+            noCap: t("capWarnNoCap"),
+            save: t("capWarnSave"),
+            saving: t("capWarnSaving"),
+            reset: t("capWarnReset"),
+            saved: t("capWarnSaved"),
+            invalid: t("capWarnInvalid", {
+              min: MIN_CAP_WARNING_PCT,
+              max: MAX_CAP_WARNING_PCT,
+            }),
+            failed: t("capWarnFailed"),
+            note: t("capWarnNote"),
           }}
         />
       )}

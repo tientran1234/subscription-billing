@@ -25,7 +25,7 @@ import { withinSpendCap } from "@/domain/spend-cap";
 import { askAssistant } from "@/server/assistant";
 import { entitlementsForTenant } from "@/server/billing.service";
 import { notifyCapWarning } from "@/server/cap-warning";
-import { spendCapFor } from "@/server/spend-cap";
+import { capSettingsFor } from "@/server/spend-cap";
 import { meter, refund } from "@/server/usage";
 import { withApiKey } from "@/server/with-api-key";
 import { env } from "@/lib/env";
@@ -69,18 +69,19 @@ export const POST = withApiKey("assistant:use", async (request, { tenantId }) =>
     // what the month is billed from, and a call that skipped it to stay honest
     // about the refusal would be a call the next cap check cannot see. What
     // keeps it off the invoice is the clamp in the report, not this branch.
-    const cap = await spendCapFor(tenantId);
+    const { cap, warnAt } = await capSettingsFor(tenantId);
 
     // Before the refusal, so the mail that says calls are being refused goes
     // out on the first one rather than on whichever request happens to come
     // after it. It claims the month and swallows its own failures, so a mail
     // server that is down cannot turn into an error on a paid call — and the
-    // claim is also what keeps a month at four fifths of its ceiling from being
-    // mailed about once per request. See src/server/cap-warning.ts.
+    // claim is also what keeps a month past the line its workspace set from
+    // being mailed about once per request. See src/server/cap-warning.ts.
     await notifyCapWarning({
       tenantId,
       units: overage,
       cap,
+      warnAt,
       planKey: entitlements.planKey,
       appUrl: env().APP_URL,
     });
