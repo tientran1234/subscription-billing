@@ -20,6 +20,17 @@ model Tenant {
   /// is ours alone — the gateway is never told it — and outlives a workspace
   /// that cancels and subscribes again, exactly as its usage counters do.
   overageCap    Int?
+  /// Where this workspace asked to be written to about its ceiling, in percent
+  /// of the cap, or null for one that has never chosen. Null is not a zero: it
+  /// is the absence of an answer, which is what every tenant from before this
+  /// column carries — src/domain/cap-warning.ts holds the rule that turns it
+  /// into a line, and the default it falls back to.
+  ///
+  /// Beside the cap rather than derived from it, because the distance a
+  /// customer wants between the warning and the refusal is theirs: a workspace
+  /// that can absorb a pause wants to hear late, and one that cannot wants the
+  /// room to raise the ceiling before anything stops.
+  capWarnPct    Int?
   /// The language this workspace is written to in, as one of the locales in
   /// src/i18n.ts, or null for a workspace that has never said. Null is not
   /// English: it is the absence of an answer, which is what every tenant from

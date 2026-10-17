@@ -32,7 +32,7 @@ export const CAP_WARNING_KINDS = ["approaching", "reached"] as const;
 export type CapWarningKind = (typeof CAP_WARNING_KINDS)[number];
 
 /**
- * How much of a cap has to be spent before the first mail goes out.
+ * Where the first mail goes out for a workspace that has not said otherwise.
  *
  * A fraction of the ceiling rather than a fixed number of units, because a
  * workspace that capped itself at fifty messages and one that capped itself at
@@ -40,17 +40,68 @@ export type CapWarningKind = (typeof CAP_WARNING_KINDS)[number];
  * any fixed figure is either most of the first cap or a rounding error in the
  * second.
  */
-export const CAP_WARNING_AT = 0.8;
+export const DEFAULT_CAP_WARNING_PCT = 80;
 
 /**
- * The first unit that earns an `approaching` notice under `cap`.
+ * Where a workspace asked to be written to, in percent of its ceiling, or
+ * `null` for one that has never said.
  *
- * Rounded up, so the line is "at least four fifths of the ceiling is gone"
+ * Null is not a zero, the way an unset cap is not a cap of zero: it is the
+ * absence of an answer, and {@link capWarningPct} is the rule that turns it
+ * into a line. Every workspace from before this setting carries it.
+ */
+export type CapWarningAt = number | null;
+
+/**
+ * Below this a warning is noise — a line at nothing warns on the first unit
+ * past the quota, which is what a cap of zero already says on its own.
+ */
+export const MIN_CAP_WARNING_PCT = 1;
+
+/**
+ * At a hundred the two mails are one: `approaching` would land on the unit
+ * that is already being refused, so the warning a customer set out to get —
+ * one while something can still be done — would never be sent at all.
+ */
+export const MAX_CAP_WARNING_PCT = 99;
+
+export type CapWarningAtRefusal =
+  /** Not a whole percent, or outside the bounds above. */
+  | "invalid_warning_at";
+
+/**
+ * Whether `at` is a line a workspace may ask for. `null` is, and means the
+ * default.
+ */
+export function checkCapWarningAt(at: CapWarningAt): CapWarningAtRefusal | null {
+  if (at === null) return null;
+  if (!Number.isInteger(at) || at < MIN_CAP_WARNING_PCT || at > MAX_CAP_WARNING_PCT) {
+    return "invalid_warning_at";
+  }
+  return null;
+}
+
+/** The line in force for a workspace: the one it picked, or the default. */
+export function capWarningPct(at: CapWarningAt): number {
+  return at ?? DEFAULT_CAP_WARNING_PCT;
+}
+
+/**
+ * The first unit that earns an `approaching` notice under `cap`, at the line
+ * `at` — or at the default for a workspace that never picked one.
+ *
+ * Whole percents of the cap rather than a fraction per workspace, so the
+ * arithmetic is two integers and a divide: a figure the customer types is
+ * stored exactly as they typed it, where a fraction derived from it would be
+ * the nearest double to it and would put a line a unit off its neighbour's on
+ * the same cap.
+ *
+ * Rounded up, so the line is "at least that much of the ceiling is gone"
  * rather than "nearly": on a cap small enough for the two to differ, rounding
  * down would warn a customer who has barely started.
  */
-export function capWarningThreshold(cap: number): number {
-  return Math.ceil(cap * CAP_WARNING_AT);
+export function capWarningThreshold(cap: number, at: CapWarningAt = null): number {
+  return Math.ceil((cap * capWarningPct(at)) / 100);
 }
 
 /**
@@ -71,8 +122,12 @@ export function capWarningThreshold(cap: number): number {
  * metering several units at once, goes straight to the second — because a
  * warning about what is about to happen is not worth sending after it has.
  */
-export function capWarningFor(units: number, cap: SpendCap): CapWarningKind | null {
+export function capWarningFor(
+  units: number,
+  cap: SpendCap,
+  at: CapWarningAt = null,
+): CapWarningKind | null {
   if (cap === UNCAPPED || units <= 0) return null;
   if (!withinSpendCap(units, cap)) return "reached";
-  return units >= capWarningThreshold(cap) ? "approaching" : null;
+  return units >= capWarningThreshold(cap, at) ? "approaching" : null;
 }
