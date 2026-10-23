@@ -686,6 +686,45 @@ describe.skipIf(!hasDatabase)("invoice history", () => {
     expect(second.ok && second.nextCursor).toBeNull();
   });
 
+  it("pages back up the archive through the gateway's backward cursor", async () => {
+    // The same two-wide window as above, read to the end and then walked back
+    // up it. What is under test is that the way up is a position like the way
+    // down: one id in the url, and no record of the windows already visited.
+    class ShallowGateway extends FakeProvider {
+      readonly asked: ListInvoicesInput[] = [];
+
+      async listInvoices(input: ListInvoicesInput): Promise<InvoicePage> {
+        this.asked.push(input);
+        return super.listInvoices({ ...input, limit: 2 });
+      }
+    }
+
+    await db.subscription.create({
+      data: { tenantId, planKey: "pro", status: "ACTIVE", customerRef: "cus_mine" },
+    });
+    const gateway = new ShallowGateway();
+
+    const first = await listInvoiceHistory(gateway, { tenantId });
+    // Nothing is in front of the window the page opens on, so no link back.
+    expect(first.ok && first.prevCursor).toBeNull();
+
+    const second = await listInvoiceHistory(gateway, {
+      tenantId,
+      startingAfter: first.ok ? (first.nextCursor ?? undefined) : undefined,
+    });
+    const back = second.ok ? second.prevCursor : null;
+    expect(back).toBeTruthy();
+
+    const again = await listInvoiceHistory(gateway, { tenantId, endingBefore: back ?? undefined });
+    // The window the customer came from, reached without having carried its
+    // cursor down with them — and offering no link in front of itself, because
+    // it is the newest. A link there is a window with nothing in it.
+    expect(gateway.asked[2].endingBefore).toBe(back);
+    expect(again.ok && again.invoices.map((invoice) => invoice.number)).toEqual(["FAKE-0002"]);
+    expect(again.ok && again.prevCursor).toBeNull();
+    expect(again.ok && again.nextCursor).toBeTruthy();
+  });
+
   it("reads a cursor the gateway will not take as a list it could not read", async () => {
     await db.subscription.create({
       data: { tenantId, planKey: "pro", status: "ACTIVE", customerRef: "cus_mine" },

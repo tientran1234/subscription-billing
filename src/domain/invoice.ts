@@ -12,7 +12,8 @@
  *
  * What is left to decide is which invoices are history, and how much of the
  * archive one read covers — the rules below: a draft is not history, and a
- * window ends on a cursor the gateway issued rather than on one of ours.
+ * window begins and ends on a cursor the gateway issued rather than on one of
+ * ours.
  */
 
 /** The statuses a gateway's invoice may be in. Ours, like every other DTO. */
@@ -109,13 +110,25 @@ export interface InvoicePage {
    * draft rule shortened is no evidence that the archive ran out.
    */
   hasMore: boolean;
+  /**
+   * Whether the gateway holds invoices newer than this window.
+   *
+   * The adapter's answer for the same reason `hasMore` is, and it cannot be
+   * read off this one: a window reached by paging backwards ends before a row
+   * the caller named, so something older always exists, while whether anything
+   * is in front of it is what the gateway was asked. False on the newest
+   * window, which is the one a customer arrives on.
+   */
+  hasNewer: boolean;
 }
 
-/** One window, as the page draws it: the history in it and the way older. */
+/** One window, as the page draws it: the history in it and the way either way. */
 export interface InvoiceHistoryPage {
   invoices: Invoice[];
   /** The gateway cursor the next window starts after, null on the last one. */
   nextCursor: string | null;
+  /** The gateway cursor the window in front ends before, null on the newest. */
+  prevCursor: string | null;
 }
 
 /**
@@ -139,9 +152,32 @@ function nextCursorOf(page: InvoicePage): string | null {
 }
 
 /**
+ * The gateway id the window in front of this one ends before, or null when
+ * this is already the newest.
+ *
+ * The first invoice the *gateway* listed, by the mirror of the reasoning
+ * above: taken before the sort and before the draft rule, because a cursor is
+ * a position in the gateway's order and the draft dropped from the head of the
+ * newest window is still a row in it. Naming the newest invoice shown instead
+ * would ask for everything in front of that, which on the newest window is the
+ * draft alone — a link back to a page with nothing on it.
+ */
+function prevCursorOf(page: InvoicePage): string | null {
+  if (!page.hasNewer) return null;
+  const first = page.invoices.at(0);
+  // A gateway claiming a window in front while handing back nothing has given
+  // us nowhere to go back to, the same as at the other end of the archive.
+  return first ? first.id : null;
+}
+
+/**
  * A window of the gateway's archive as the account page needs it: the issued
- * invoices in it, newest first, and where the next window begins.
+ * invoices in it, newest first, and where the windows on either side begin.
  */
 export function historyPageOf(page: InvoicePage): InvoiceHistoryPage {
-  return { invoices: historyOf(page.invoices), nextCursor: nextCursorOf(page) };
+  return {
+    invoices: historyOf(page.invoices),
+    nextCursor: nextCursorOf(page),
+    prevCursor: prevCursorOf(page),
+  };
 }

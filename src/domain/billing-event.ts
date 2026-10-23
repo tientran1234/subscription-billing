@@ -131,6 +131,16 @@ export interface ListInvoicesInput {
    * archive can only be paged from a position its owner recognises.
    */
   startingAfter?: string;
+  /**
+   * The gateway's id for the first invoice of the window after this one; the
+   * window read is the one ending before it. Absent reads forward.
+   *
+   * The way back up the archive, and the reason it does not need a trail of
+   * every window visited in the url: a backward window is named by one
+   * position the same way a forward one is. Never sent with `startingAfter` —
+   * a gateway asked to page in both directions at once refuses the call.
+   */
+  endingBefore?: string;
 }
 
 export interface PreviewPlanChangeInput {
@@ -209,7 +219,8 @@ export interface IBillingProvider {
    * One window, not the archive. `hasMore` is the gateway's own answer about
    * what lies behind it, because the adapter is the only thing that can tell
    * the difference between a window that ends the list and one that merely
-   * filled up; `startingAfter` reads the next.
+   * filled up; `startingAfter` reads the next, and `endingBefore` the window
+   * in front of this one.
    */
   listInvoices(input: ListInvoicesInput): Promise<InvoicePage>;
   /**

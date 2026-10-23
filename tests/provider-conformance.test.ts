@@ -157,6 +157,102 @@ describe("fake provider", () => {
     expect(second.hasMore).toBe(false);
   });
 
+  it("says whether anything is in front of the window it handed back", async () => {
+    // Not something the page can count its way to either: a window is in front
+    // of another only because of where the read started, and the gateway is
+    // the only thing that knows where that was.
+    const provider = new FakeProvider();
+    const newest = await provider.listInvoices({ customerRef: "cus_local", limit: 1 });
+    expect(newest.hasNewer).toBe(false);
+
+    const behind = await provider.listInvoices({
+      customerRef: "cus_local",
+      limit: 1,
+      startingAfter: newest.invoices[0].id,
+    });
+    expect(behind.hasNewer).toBe(true);
+  });
+
+  it("reads the window that ends before the cursor it is given", async () => {
+    const provider = new FakeProvider();
+    const second = await provider.listInvoices({
+      customerRef: "cus_local",
+      limit: 1,
+      startingAfter: "in_fake_cus_local_0",
+    });
+    const third = await provider.listInvoices({
+      customerRef: "cus_local",
+      limit: 1,
+      startingAfter: second.invoices[0].id,
+    });
+
+    // Back up from the third window and the second is what comes back — not
+    // the newest, which is what a cursor read as "start again" would serve.
+    // The way up the archive is a position like the way down, and that is
+    // what makes it one id in the url instead of a trail of every window
+    // visited on the way here.
+    const back = await provider.listInvoices({
+      customerRef: "cus_local",
+      limit: 1,
+      endingBefore: third.invoices[0].id,
+    });
+    expect(back.invoices.map((invoice) => invoice.id)).toEqual(
+      second.invoices.map((invoice) => invoice.id),
+    );
+
+    // Before, not from, by the same rule the forward cursor follows.
+    for (const invoice of back.invoices) {
+      expect(third.invoices.map((i) => i.id)).not.toContain(invoice.id);
+    }
+  });
+
+  it("knows the newest window is the newest when it is reached from behind", async () => {
+    // The whole of what a backward read has to get right. A window arrived at
+    // from below looks exactly like any other, so an adapter that cannot tell
+    // the top of the archive would offer a link in front of the newest
+    // invoices — and the window behind that link is empty.
+    const provider = new FakeProvider();
+    const windows = [];
+    let cursor: string | undefined;
+    for (let i = 0; i < 3; i++) {
+      const page = await provider.listInvoices({
+        customerRef: "cus_local",
+        limit: 1,
+        startingAfter: cursor,
+      });
+      windows.push(page);
+      cursor = page.invoices.at(-1)?.id;
+    }
+
+    const middle = await provider.listInvoices({
+      customerRef: "cus_local",
+      limit: 1,
+      endingBefore: windows[2].invoices[0].id,
+    });
+    expect(middle.hasNewer).toBe(true);
+    // Something older always exists on a backward read: the invoice the
+    // cursor named is itself behind the window that came back.
+    expect(middle.hasMore).toBe(true);
+
+    const newest = await provider.listInvoices({
+      customerRef: "cus_local",
+      limit: 1,
+      endingBefore: windows[1].invoices[0].id,
+    });
+    expect(newest.invoices.map((i) => i.id)).toEqual(windows[0].invoices.map((i) => i.id));
+    expect(newest.hasNewer).toBe(false);
+  });
+
+  it("refuses a backward cursor it never issued", async () => {
+    await expect(
+      new FakeProvider().listInvoices({
+        customerRef: "cus_local",
+        limit: 2,
+        endingBefore: "in_not_ours",
+      }),
+    ).rejects.toThrow();
+  });
+
   it("refuses a cursor it never issued rather than starting again", async () => {
     // Starting again would hand the caller the newest invoices under a link
     // that said "older", which reads as an archive that has lost everything

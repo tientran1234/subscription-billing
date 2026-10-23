@@ -197,6 +197,8 @@ export type InvoiceHistoryResult =
       invoices: Invoice[];
       /** Where the window of older invoices starts, null on the last one. */
       nextCursor: string | null;
+      /** Where the window in front of this one ends, null on the newest. */
+      prevCursor: string | null;
     }
   /** Nothing billed yet: this tenant has no customer with the provider. */
   | { ok: false; reason: "no_customer" }
@@ -214,11 +216,12 @@ export type InvoiceHistoryResult =
  * and PDF live on the invoice itself, so one read into this page is still the
  * same document tomorrow.
  *
- * One window of it, and where the next one starts. `startingAfter` is a cursor
- * that came back from this same call, so the page offers no position the
- * gateway did not issue — and a cursor it will not take lands in the catch
- * below, which is the honest answer for a hand-edited url: the alternative is
- * reading as a workspace whose older invoices have gone.
+ * One window of it, and where the windows on either side of it begin. Both
+ * cursors came back from this same call, so the page offers no position the
+ * gateway did not issue — and one it will not take lands in the catch below,
+ * which is the honest answer for a hand-edited url: the alternative is reading
+ * as a workspace whose older invoices have gone. Never both at once: a gateway
+ * asked to page two ways in one call refuses it, so the page picks one.
  *
  * A provider that cannot be reached is an outcome rather than a throw. The
  * account page holds the plan this workspace is on, the change it may make and
@@ -227,7 +230,7 @@ export type InvoiceHistoryResult =
  */
 export async function listInvoiceHistory(
   provider: IBillingProvider,
-  input: { tenantId: string; startingAfter?: string },
+  input: { tenantId: string; startingAfter?: string; endingBefore?: string },
 ): Promise<InvoiceHistoryResult> {
   const customerRef = await providerCustomerFor(input.tenantId);
   if (!customerRef) return { ok: false, reason: "no_customer" };
@@ -237,6 +240,7 @@ export async function listInvoiceHistory(
       customerRef,
       limit: INVOICE_HISTORY_LIMIT,
       startingAfter: input.startingAfter,
+      endingBefore: input.endingBefore,
     });
     return { ok: true, ...historyPageOf(page) };
   } catch {

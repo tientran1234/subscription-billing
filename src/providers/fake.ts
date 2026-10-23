@@ -127,7 +127,13 @@ export class FakeProvider implements IBillingProvider {
     }
 
     const window = archive.slice(from, from + input.limit);
-    return { invoices: window, hasMore: from + window.length < archive.length };
+    return {
+      invoices: window,
+      hasMore: from + window.length < archive.length,
+      // A forward cursor names an invoice this window starts after, so that
+      // invoice and everything above it are in front of what came back.
+      hasNewer: from > 0,
+    };
   }
 
   async previewPlanChange(input: PreviewPlanChangeInput): Promise<PlanChangePreview> {

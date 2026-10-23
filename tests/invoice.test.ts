@@ -84,6 +84,7 @@ describe("where the next window of the archive starts", () => {
     const page = historyPageOf({
       invoices: [invoice({ id: "in_june" })],
       hasMore: false,
+      hasNewer: false,
     });
     // A link offered here is a link to an empty page: the cursor would be
     // valid and the window behind it would hold nothing.
@@ -107,6 +108,7 @@ describe("where the next window of the archive starts", () => {
         }),
       ],
       hasMore: true,
+      hasNewer: false,
     });
 
     expect(page.invoices.map((i) => i.id)).toEqual(["in_paid"]);
@@ -125,6 +127,7 @@ describe("where the next window of the archive starts", () => {
         invoice({ id: "in_june", createdAt: new Date("2026-06-01") }),
       ],
       hasMore: true,
+      hasNewer: false,
     });
 
     expect(page.invoices.map((i) => i.id)).toEqual(["in_july", "in_june", "in_may"]);
@@ -134,6 +137,66 @@ describe("where the next window of the archive starts", () => {
   it("offers no cursor for a window that came back empty", () => {
     // A gateway claiming more while handing back nothing has given us nowhere
     // to continue from, so the list ends instead of offering a dead link.
-    expect(historyPageOf({ invoices: [], hasMore: true }).nextCursor).toBeNull();
+    expect(historyPageOf({ invoices: [], hasMore: true, hasNewer: false }).nextCursor).toBeNull();
+  });
+});
+
+describe("where the window in front of this one ends", () => {
+  it("has nowhere newer to go on the window a customer arrives on", () => {
+    const page = historyPageOf({
+      invoices: [invoice({ id: "in_june" })],
+      hasMore: true,
+      hasNewer: false,
+    });
+    // The newest window is where the list opens, so a link back from it is a
+    // link to nothing — and the "back to the latest" link beside it already
+    // points here.
+    expect(page.prevCursor).toBeNull();
+  });
+
+  it("ends the window in front on the gateway's first row, not the first shown", () => {
+    // The mirror of the cursor at the other end. The draft the page never
+    // draws is still the newest row of this window in the gateway's sequence,
+    // so a cursor read off what is drawn would ask for everything in front of
+    // the issued invoice below it — handing the draft back as a window of its
+    // own, which the draft rule then empties.
+    const page = historyPageOf({
+      invoices: [
+        invoice({
+          id: "in_draft",
+          status: "draft",
+          number: null,
+          createdAt: new Date("2026-07-01"),
+        }),
+        invoice({ id: "in_june", createdAt: new Date("2026-06-01") }),
+      ],
+      hasMore: true,
+      hasNewer: true,
+    });
+
+    expect(page.invoices.map((i) => i.id)).toEqual(["in_june"]);
+    expect(page.prevCursor).toBe("in_draft");
+  });
+
+  it("takes the backward cursor from the gateway's order rather than from ours", () => {
+    // Our order is newest first; the gateway's is whatever it listed. Reading
+    // the backward cursor off the sorted list would name the newest invoice in
+    // the window instead of the row the window opened on.
+    const page = historyPageOf({
+      invoices: [
+        invoice({ id: "in_may", createdAt: new Date("2026-05-01") }),
+        invoice({ id: "in_july", createdAt: new Date("2026-07-01") }),
+        invoice({ id: "in_june", createdAt: new Date("2026-06-01") }),
+      ],
+      hasMore: false,
+      hasNewer: true,
+    });
+
+    expect(page.invoices.map((i) => i.id)).toEqual(["in_july", "in_june", "in_may"]);
+    expect(page.prevCursor).toBe("in_may");
+  });
+
+  it("offers no backward cursor for a window that came back empty", () => {
+    expect(historyPageOf({ invoices: [], hasMore: false, hasNewer: true }).prevCursor).toBeNull();
   });
 });

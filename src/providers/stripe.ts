@@ -190,7 +190,14 @@ export class StripeProvider implements IBillingProvider {
       // it ever offers came back from here.
       starting_after: input.startingAfter,
     });
-    return { invoices: page.data.map(normalizeInvoice), hasMore: page.has_more };
+    return {
+      invoices: page.data.map(normalizeInvoice),
+      hasMore: page.has_more,
+      // Not Stripe's to answer: `has_more` looks the way the list is being
+      // read, and on a forward window what lies in front of it is simply the
+      // invoice the cursor named, plus whatever is above that.
+      hasNewer: Boolean(input.startingAfter),
+    };
   }
 
   async previewPlanChange(input: PreviewPlanChangeInput): Promise<PlanChangePreview> {
