@@ -119,18 +119,29 @@ another's would be two answers to a question that may only have one — and a
 gateway that cannot be reached says so, because "no invoices" is also exactly
 what a customer holding twelve of them would then be shown.
 
-The twelve are a window rather than the list, and behind them the archive pages
-through the gateway's own cursor — the keyset the transaction lists use names a
-row by `(createdAt, id)` in a table this app has, and an invoice is in no table
-here, so an archive can only be paged from a position its owner recognises. The
-cursor is the last row the gateway listed and not the last row shown: the draft
-dropped above is still a position in that sequence, and continuing from the
+The twelve are a window rather than the list, and the archive pages both ways
+around them through the gateway's own cursors — the keyset the transaction lists
+use names a row by `(createdAt, id)` in a table this app has, and an invoice is
+in no table here, so an archive can only be paged from a position its owner
+recognises. Each cursor is a row the gateway listed and not a row shown: the
+draft dropped above is still a position in that sequence, so continuing from the
 newest invoice drawn would hand the draft back at the head of every window after
-it. It rides in the url and is passed through rather than parsed, because
+it, and ending before it would ask for a window the draft rule then empties. One
+rides in the url at a time and is passed through rather than parsed, because
 nothing here can tell a position Stripe would accept from one it would not — so
 an id it refuses reads as a list that could not be read, which is the honest
 answer for a hand-edited url and better than starting again from the newest
 invoices under a link that said "older".
+
+Going back up is what keeps paging down cheap: a reader who clicks past the
+month they wanted steps back one window instead of returning to the newest and
+walking the archive down again. It costs one id in the url and no record of
+where they have been, because the window in front is named by a position the
+same way the window behind is. What Stripe will not say is whether a backward
+window is the top of the archive — `has_more` looks the way the list is being
+read — so that read asks for one row more than it will show, and whether the
+extra row arrives is the answer. An adapter that guessed would offer a link in
+front of the newest invoices, and the window behind it is empty.
 
 **A trial is the plan, on a status of its own.**
 `trialDays` on a plan is what a checkout asks the gateway for, read off
@@ -569,7 +580,7 @@ src/
     entitlements.ts    plans, features, quotas; entitlements as a pure function
     currency.ts        the currencies we sell in, and what a minor unit is worth
     invoice.ts         what an invoice history is, what is not in one, and
-                       where the next window of the archive starts
+                       where the windows either side of this one begin
     overage.ts         what is owed past the quota, and when a month may be billed
     spend-cap.ts       the ceiling a workspace sets on what it will be billed
     cap-warning.ts     which line of that ceiling is worth writing to them about,
@@ -705,15 +716,14 @@ on every push, and the end-to-end suite beside it in a job with a browser.
   better than an application ever will. The account page lists the invoices and
   links to each one, but nothing here composes a document, works out what is
   owed in tax, or sends a receipt.
-- **A list of the whole archive at once, or a way back up through it.** The
-  window is still the last twelve, which is as far back as all but a few
-  customers ever read; behind it is a page back through Stripe's own cursor,
-  and that cursor points one way. So there is a link to older invoices and a
-  link to the newest, and nothing between them: walking back up window by
-  window would mean carrying every cursor visited in the url, and a customer
-  who has gone too far is one click from where they started. Reading the
-  archive in one request is what is not here at all — it would make every
-  customer wait for the year somebody's accountant asks for once.
+- **A list of the whole archive at once.** The window is still the last twelve,
+  which is as far back as all but a few customers ever read, and the archive
+  on either side of it is reached a window at a time through Stripe's own
+  cursors: a link to older invoices, one back up to the window in front, and
+  one to the newest. Reading the archive in a single request is what is not
+  here — it would make every customer wait for the year somebody's accountant
+  asks for once. Nor is a page number or a count of how many windows there
+  are, which a cursor cannot answer without walking to the end to find out.
 - **A role between admin and member, or one scoped to part of a workspace.**
   There are two, and the division between them is whole: an admin may make
   every change here and a member may make none. Somebody who should be able to
