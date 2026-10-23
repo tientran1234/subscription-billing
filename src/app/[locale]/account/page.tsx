@@ -31,16 +31,21 @@ import { PortalLink } from "./portal-link";
 import { CapWarningForm } from "./cap-warning-form";
 import { SpendCapForm } from "./spend-cap-form";
 
-/** Which window of the invoice archive the url is asking for. */
-const INVOICE_CURSOR_PARAM = "invoiceAfter";
+/** Which window of the invoice archive the url is asking for, and which way. */
+const INVOICE_AFTER_PARAM = "invoiceAfter";
+const INVOICE_BEFORE_PARAM = "invoiceBefore";
 
 /**
  * This page at a window of the invoice archive. The fragment is what makes the
  * link usable: the list is near the foot of a long page, and a customer paging
  * it would otherwise land back at the top of their plan on every click.
+ *
+ * One cursor and one direction, never a trail: each window names the window on
+ * either side of it by a single position, so a reader who has gone too far
+ * steps back without the url having carried where they have been.
  */
-function invoicesHref(locale: string, cursor: string | null): string {
-  const query = cursor ? `?${INVOICE_CURSOR_PARAM}=${encodeURIComponent(cursor)}` : "";
+function invoicesHref(locale: string, cursor: { param: string; id: string } | null): string {
+  const query = cursor ? `?${cursor.param}=${encodeURIComponent(cursor.id)}` : "";
   return `/${locale}/account${query}#invoices`;
 }
 
@@ -102,14 +107,19 @@ export default async function AccountPage({
     choose: t("changeTo", { plan: PLANS[planKey].name }),
   }));
 
-  // Which window of the invoice archive to draw. The gateway's own cursor, so
-  // it is passed through rather than parsed: nothing here can tell a position
-  // the gateway would accept from one it would not, and the one it refuses
-  // comes back as a list it could not read.
+  // Which window of the invoice archive to draw, and from which end. The
+  // gateway's own cursor, so it is passed through rather than parsed: nothing
+  // here can tell a position the gateway would accept from one it would not,
+  // and the one it refuses comes back as a list it could not read.
   const raw = await searchParams;
-  const after = Array.isArray(raw[INVOICE_CURSOR_PARAM])
-    ? raw[INVOICE_CURSOR_PARAM][0]
-    : raw[INVOICE_CURSOR_PARAM];
+  const one = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value);
+  // One direction per read. Every link this page draws carries one cursor and
+  // replaces the query, so a url holding both was written by hand — and a
+  // gateway asked to page two ways at once refuses the call, which would cost
+  // the reader the list rather than the stray parameter. Backwards wins, so
+  // which of the two is honoured is decided here and not by their order.
+  const before = one(raw[INVOICE_BEFORE_PARAM]);
+  const after = before ? undefined : one(raw[INVOICE_AFTER_PARAM]);
 
   // Read from the provider on this request, which is the point: an invoice is
   // the provider's own document and goes on changing after it is raised, so a
@@ -117,6 +127,7 @@ export default async function AccountPage({
   const invoices = await listInvoiceHistory(billingProvider(), {
     tenantId: resolved.tenantId,
     startingAfter: after,
+    endingBefore: before,
   });
 
   // Who is in the workspace and who has been offered a seat. Read here rather
@@ -330,14 +341,22 @@ export default async function AccountPage({
       <InvoiceHistory
         history={invoices}
         locale={locale}
-        older={
-          invoices.ok && invoices.nextCursor ? invoicesHref(locale, invoices.nextCursor) : null
+        newer={
+          invoices.ok && invoices.prevCursor
+            ? invoicesHref(locale, { param: INVOICE_BEFORE_PARAM, id: invoices.prevCursor })
+            : null
         }
-        latest={after ? invoicesHref(locale, null) : null}
+        older={
+          invoices.ok && invoices.nextCursor
+            ? invoicesHref(locale, { param: INVOICE_AFTER_PARAM, id: invoices.nextCursor })
+            : null
+        }
+        latest={after || before ? invoicesHref(locale, null) : null}
         labels={{
           heading: t("invoices"),
           empty: t("invoicesEmpty"),
           end: t("invoicesEnd"),
+          newer: t("invoicesNewer"),
           older: t("invoicesOlder"),
           latest: t("invoicesLatest"),
           unavailable: t("invoicesUnavailable"),

@@ -12,6 +12,7 @@ export interface InvoiceHistoryLabels {
   /** What stands in for the table at the far end of the archive. */
   end: string;
   unavailable: string;
+  newer: string;
   older: string;
   latest: string;
   note: string;
@@ -40,21 +41,24 @@ export interface InvoiceHistoryLabels {
  * history and the link is an extra. Dropping it would hide a month the
  * customer paid for.
  *
- * `older` and `latest` arrive built rather than assembled here, so the one
- * place that knows this page's url stays the page itself. Forward and back to
- * the start, like the transaction lists: the gateway's cursor only points one
- * way, and a trail of every window visited would have to ride in the url to
- * walk back through it.
+ * `newer`, `older` and `latest` arrive built rather than assembled here, so
+ * the one place that knows this page's url stays the page itself. Both ways
+ * and back to the start: the gateway names the window in front of this one by
+ * a position as it names the window behind it, so stepping back up costs one
+ * id in the url rather than a trail of every window visited to get here.
  */
 export function InvoiceHistory({
   history,
   locale,
+  newer,
   older,
   latest,
   labels,
 }: {
   history: InvoiceHistoryResult;
   locale: string;
+  /** Where the window in front of this one is, or null on the newest. */
+  newer: string | null;
   /** Where the next window of older invoices is, or null on the last one. */
   older: string | null;
   /** Back to the newest window — null when this is already it. */
@@ -130,8 +134,9 @@ export function InvoiceHistory({
 
       {rows.length > 0 ? <p className="sub">{labels.note}</p> : null}
 
-      {older || latest ? (
+      {newer || older || latest ? (
         <p className="filters">
+          {newer ? <Link href={newer}>{labels.newer}</Link> : null}
           {older ? <Link href={older}>{labels.older}</Link> : null}
           {latest ? <Link href={latest}>{labels.latest}</Link> : null}
         </p>

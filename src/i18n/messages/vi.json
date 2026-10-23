@@ -116,6 +116,7 @@
     "invoicesPdf": "PDF",
     "invoicesEmpty": "Workspace này chưa có hoá đơn nào.",
     "invoicesEnd": "Workspace này không còn hoá đơn nào cũ hơn.",
+    "invoicesNewer": "Hoá đơn mới hơn",
     "invoicesOlder": "Hoá đơn cũ hơn",
     "invoicesLatest": "Về hoá đơn mới nhất",
     "invoicesUnavailable": "Hiện chưa lấy được danh sách này từ Stripe. Không có hoá đơn nào bị mất — hãy tải lại sau giây lát.",

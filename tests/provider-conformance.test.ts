@@ -13,6 +13,7 @@ import {
   meteredItemOf,
   normalize,
   normalizeInvoice,
+  windowBefore,
 } from "@/providers/stripe";
 
 function contract(name: string, make: () => IBillingProvider) {
@@ -670,5 +671,31 @@ describe("stripe normalisation", () => {
 
   it("marks anything it does not handle as unknown rather than guessing", () => {
     expect(normalize(stripeEvent("customer.created", { id: "cus_1" })).type).toBe("unknown");
+  });
+});
+
+describe("stripe's backward window", () => {
+  it("drops the row read only to find out whether one is in front", () => {
+    // Four rows came back for a window of three. The extra is the newest of
+    // them — Stripe lists newest first whichever way it was paged — so the
+    // three immediately in front of the cursor are what is left.
+    expect(windowBefore(["d", "c", "b", "a"], 3)).toEqual({
+      window: ["c", "b", "a"],
+      hasNewer: true,
+    });
+  });
+
+  it("is the top of the archive when the extra row does not arrive", () => {
+    // Everything in front of the cursor fitted, so there is nothing above it
+    // and no link back. Offering one here is a window with nothing in it,
+    // which is the one thing a backward read can get wrong without the
+    // reader being able to tell it from an archive that had lost its head.
+    expect(windowBefore(["b", "a"], 3)).toEqual({ window: ["b", "a"], hasNewer: false });
+    // Exactly full and no further: still the top, because the row that would
+    // have proved otherwise was asked for and did not come.
+    expect(windowBefore(["c", "b", "a"], 3)).toEqual({
+      window: ["c", "b", "a"],
+      hasNewer: false,
+    });
   });
 });

@@ -115,17 +115,29 @@ export class FakeProvider implements IBillingProvider {
       return { ...invoice, id, hostedUrl: hosted, pdfUrl: hosted && `${hosted}.pdf` };
     });
 
-    let from = 0;
-    if (input.startingAfter) {
-      const at = archive.findIndex((invoice) => invoice.id === input.startingAfter);
-      // A gateway refuses a cursor it never issued, as Stripe does, rather
-      // than starting the list again: a window that silently began from the
-      // top would read to the caller as an archive that had lost everything
-      // behind the cursor.
-      if (at < 0) throw new Error(`fake gateway: no invoice ${input.startingAfter}`);
-      from = at + 1;
+    // A gateway refuses a cursor it never issued, as Stripe does, rather than
+    // starting the list again: a window that silently began from the top would
+    // read to the caller as an archive that had lost everything behind the
+    // cursor — and under a link that said "older", at that.
+    const positionOf = (id: string) => {
+      const at = archive.findIndex((invoice) => invoice.id === id);
+      if (at < 0) throw new Error(`fake gateway: no invoice ${id}`);
+      return at;
+    };
+
+    if (input.endingBefore) {
+      const until = positionOf(input.endingBefore);
+      const from = Math.max(0, until - input.limit);
+      return {
+        invoices: archive.slice(from, until),
+        // The cursor names an invoice sitting behind this window, so a
+        // backward read always has somewhere older to go back to.
+        hasMore: true,
+        hasNewer: from > 0,
+      };
     }
 
+    const from = input.startingAfter ? positionOf(input.startingAfter) + 1 : 0;
     const window = archive.slice(from, from + input.limit);
     return {
       invoices: window,

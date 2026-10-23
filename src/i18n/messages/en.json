@@ -116,6 +116,7 @@
     "invoicesPdf": "PDF",
     "invoicesEmpty": "Nothing has been invoiced to this workspace yet.",
     "invoicesEnd": "That is as far back as this workspace's invoices go.",
+    "invoicesNewer": "Newer invoices",
     "invoicesOlder": "Older invoices",
     "invoicesLatest": "Back to the latest",
     "invoicesUnavailable": "Could not reach Stripe for this list just now. Nothing is missing — reload in a moment.",

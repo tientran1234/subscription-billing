@@ -107,6 +107,29 @@ async function repricedItem(
   return { itemId, customerRef: refOf(subscription.customer) };
 }
 
+/**
+ * One backward window out of what `ending_before` handed back, and whether the
+ * archive carries on in front of it.
+ *
+ * `rows` is a window read one longer than will be shown. Stripe answers
+ * `ending_before` with the rows immediately in front of the cursor and says
+ * nothing about what is above them — `has_more` looks the way the list is
+ * being read rather than back up it — so the extra row is the question: if it
+ * arrived there is a window in front of this one, and if it did not, this is
+ * the top of the archive.
+ *
+ * The extra is the first row, because Stripe lists newest first whichever way
+ * it was paged, and dropping it leaves the rows immediately in front of the
+ * cursor — the window that was asked for.
+ */
+export function windowBefore<T>(
+  rows: readonly T[],
+  limit: number,
+): { window: T[]; hasNewer: boolean } {
+  const over = rows.length > limit;
+  return { window: rows.slice(over ? 1 : 0), hasNewer: over };
+}
+
 export class StripeProvider implements IBillingProvider {
   readonly name = "stripe";
   private readonly stripe: Stripe;
@@ -177,25 +200,42 @@ export class StripeProvider implements IBillingProvider {
   }
 
   async listInvoices(input: ListInvoicesInput): Promise<InvoicePage> {
+    // Reading backwards costs one row more than will be shown — see
+    // windowBefore above, which is what that row is for.
+    const lookahead = input.endingBefore ? 1 : 0;
+
     // No `status` filter on the call, though Stripe takes one: it takes
     // exactly one status, and the four this list shows would be four requests.
     // Which of them are history is our rule anyway — see domain/invoice.ts —
     // and asking the gateway to apply half of it would put it in two places.
     const page = await this.stripe.invoices.list({
       customer: input.customerRef,
-      limit: input.limit,
-      // Stripe's own cursor, left off the first request. An id it did not
-      // issue is an error from its side rather than a list quietly starting
-      // again, which is the behaviour the account page wants: the only cursor
-      // it ever offers came back from here.
+      limit: input.limit + lookahead,
+      // Stripe's own cursors, left off the first request, and never both:
+      // Stripe refuses a call that asks to page two ways at once. An id it did
+      // not issue is an error from its side rather than a list quietly
+      // starting again, which is the behaviour the account page wants: the
+      // only cursors it ever offers came back from here.
       starting_after: input.startingAfter,
+      ending_before: input.endingBefore,
     });
+
+    if (input.endingBefore) {
+      const { window, hasNewer } = windowBefore(page.data, input.limit);
+      return {
+        invoices: window.map(normalizeInvoice),
+        // The cursor names an invoice sitting behind this window, so a
+        // backward read always has somewhere older to go back to.
+        hasMore: true,
+        hasNewer,
+      };
+    }
+
     return {
       invoices: page.data.map(normalizeInvoice),
       hasMore: page.has_more,
-      // Not Stripe's to answer: `has_more` looks the way the list is being
-      // read, and on a forward window what lies in front of it is simply the
-      // invoice the cursor named, plus whatever is above that.
+      // Not Stripe's to answer either: on a forward window what lies in front
+      // of it is the invoice the cursor named, plus whatever is above that.
       hasNewer: Boolean(input.startingAfter),
     };
   }
