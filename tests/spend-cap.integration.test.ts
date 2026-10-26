@@ -20,6 +20,13 @@ import {
 
 const hasDatabase = Boolean(process.env.DATABASE_URL);
 
+/**
+ * Who the setters record the change against. Plain strings: the audit keeps
+ * the account as columns rather than a relation, so these tests need no user
+ * row to move a setting — what they are about is the columns it moves.
+ */
+const by = { userId: "u_settings_test", email: "admin@example.test" };
+
 describe.skipIf(!hasDatabase)("storing a spend cap", () => {
   let tenantId: string;
 
@@ -39,16 +46,16 @@ describe.skipIf(!hasDatabase)("storing a spend cap", () => {
   });
 
   it("keeps a cap of zero apart from no cap at all", async () => {
-    await setSpendCap(tenantId, 0);
+    await setSpendCap(tenantId, 0, by);
     expect(await spendCapFor(tenantId)).toBe(0);
 
-    await setSpendCap(tenantId, UNCAPPED);
+    await setSpendCap(tenantId, UNCAPPED, by);
     expect(await spendCapFor(tenantId)).toBe(UNCAPPED);
   });
 
   it("replaces the cap rather than accumulating caps", async () => {
-    await setSpendCap(tenantId, 500);
-    await setSpendCap(tenantId, 100);
+    await setSpendCap(tenantId, 500, by);
+    await setSpendCap(tenantId, 100, by);
     expect(await spendCapFor(tenantId)).toBe(100);
   });
 
@@ -56,7 +63,7 @@ describe.skipIf(!hasDatabase)("storing a spend cap", () => {
     const other = await db.tenant.create({
       data: { email: `o${Date.now()}@example.test`, name: "Other" },
     });
-    await setSpendCap(other.id, 7);
+    await setSpendCap(other.id, 7, by);
 
     expect(await spendCapFor(tenantId)).toBe(UNCAPPED);
   });
@@ -85,16 +92,16 @@ describe.skipIf(!hasDatabase)("storing the line a cap warns at", () => {
   });
 
   it("keeps the lowest line apart from no line at all", async () => {
-    await setCapWarningAt(tenantId, 1);
+    await setCapWarningAt(tenantId, 1, by);
     expect((await capSettingsFor(tenantId)).warnAt).toBe(1);
 
-    await setCapWarningAt(tenantId, null);
+    await setCapWarningAt(tenantId, null, by);
     expect((await capSettingsFor(tenantId)).warnAt).toBeNull();
   });
 
   it("replaces the line rather than accumulating lines", async () => {
-    await setCapWarningAt(tenantId, 50);
-    await setCapWarningAt(tenantId, 90);
+    await setCapWarningAt(tenantId, 50, by);
+    await setCapWarningAt(tenantId, 90, by);
     expect((await capSettingsFor(tenantId)).warnAt).toBe(90);
   });
 
@@ -102,8 +109,8 @@ describe.skipIf(!hasDatabase)("storing the line a cap warns at", () => {
   // for both, so a call cannot be served against a ceiling the workspace set
   // and warned against a line it did not.
   it("answers with the ceiling and the line together", async () => {
-    await setSpendCap(tenantId, 500);
-    await setCapWarningAt(tenantId, 25);
+    await setSpendCap(tenantId, 500, by);
+    await setCapWarningAt(tenantId, 25, by);
 
     expect(await capSettingsFor(tenantId)).toEqual({ cap: 500, warnAt: 25 });
   });
@@ -111,13 +118,13 @@ describe.skipIf(!hasDatabase)("storing the line a cap warns at", () => {
   it("leaves the line alone when the cap moves, and the cap when the line does", async () => {
     // The two are set at different moments and neither save is a statement
     // about the other.
-    await setSpendCap(tenantId, 500);
-    await setCapWarningAt(tenantId, 25);
+    await setSpendCap(tenantId, 500, by);
+    await setCapWarningAt(tenantId, 25, by);
 
-    await setSpendCap(tenantId, 900);
+    await setSpendCap(tenantId, 900, by);
     expect(await capSettingsFor(tenantId)).toEqual({ cap: 900, warnAt: 25 });
 
-    await setCapWarningAt(tenantId, 60);
+    await setCapWarningAt(tenantId, 60, by);
     expect(await capSettingsFor(tenantId)).toEqual({ cap: 900, warnAt: 60 });
   });
 
@@ -125,7 +132,7 @@ describe.skipIf(!hasDatabase)("storing the line a cap warns at", () => {
     const other = await db.tenant.create({
       data: { email: `o${Date.now()}@example.test`, name: "Other" },
     });
-    await setCapWarningAt(other.id, 30);
+    await setCapWarningAt(other.id, 30, by);
 
     expect(await capSettingsFor(tenantId)).toEqual({ cap: UNCAPPED, warnAt: null });
   });

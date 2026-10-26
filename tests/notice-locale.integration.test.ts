@@ -15,6 +15,13 @@ import type { IBillingProvider } from "@/domain/billing-event";
 
 const hasDatabase = Boolean(process.env.DATABASE_URL);
 
+/**
+ * Who the setters record the change against. Plain strings: the audit keeps
+ * the account as columns rather than a relation, so these tests need no user
+ * row to move a setting — what they are about is the columns it moves.
+ */
+const by = { userId: "u_settings_test", email: "admin@example.test" };
+
 describe.skipIf(!hasDatabase)("telling the gateway which language to write in", () => {
   let tenantId: string;
 
@@ -101,7 +108,7 @@ describe.skipIf(!hasDatabase)("telling the gateway which language to write in", 
       },
     });
 
-    await setTenantLocale(tenantId, "vi");
+    await setTenantLocale(tenantId, "vi", by);
 
     expect(await syncNoticeLocale(refusing, { tenantId, locale: "vi" })).toBe("unavailable");
     expect(await tenantLocale(tenantId)).toBe("vi");

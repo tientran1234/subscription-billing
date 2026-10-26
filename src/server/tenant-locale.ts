@@ -11,6 +11,8 @@
  */
 import { db } from "@/lib/db";
 import type { Locale } from "@/i18n";
+import { settingValueOf } from "@/domain/setting-history";
+import { recordSettingChange, type SettingActor } from "./setting-history";
 
 /** What the workspace has recorded, or null if it has never said. */
 export async function tenantLocale(tenantId: string): Promise<string | null> {
@@ -32,6 +34,26 @@ export async function tenantLocale(tenantId: string): Promise<string | null> {
  * "none" would only mean "the default", which a workspace can say by choosing
  * it — and then the row says they chose it.
  */
-export async function setTenantLocale(tenantId: string, locale: Locale): Promise<void> {
-  await db.tenant.update({ where: { id: tenantId }, data: { locale } });
+export async function setTenantLocale(
+  tenantId: string,
+  locale: Locale,
+  by: SettingActor,
+): Promise<void> {
+  await db.$transaction(async (tx) => {
+    // The same shape as the cap's two setters, and for the same reasons: the
+    // column read before it is written, and the row that records the move in
+    // the transaction that makes it.
+    const before = await tx.tenant.findUnique({
+      where: { id: tenantId },
+      select: { locale: true },
+    });
+    await tx.tenant.update({ where: { id: tenantId }, data: { locale } });
+    await recordSettingChange(tx, {
+      tenantId,
+      setting: "notice_locale",
+      previous: settingValueOf(before?.locale ?? null),
+      value: settingValueOf(locale),
+      changedBy: by,
+    });
+  });
 }

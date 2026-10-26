@@ -38,7 +38,7 @@ export const GET = withSession(async (_request, { tenantId }) =>
   Response.json({ locale: noticeLocaleFor(await tenantLocale(tenantId)) }),
 );
 
-export const POST = withSession(async (request, { tenantId }) => {
+export const POST = withSession(async (request, { tenantId, userId, email }) => {
   const parsed = Body.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return Response.json(
@@ -55,7 +55,8 @@ export const POST = withSession(async (request, { tenantId }) => {
     );
   }
 
-  await setTenantLocale(tenantId, locale);
+  // The account off the session, as the cap's route does it.
+  await setTenantLocale(tenantId, locale, { userId, email });
   // In force for the next notice composed, which is all there is to wait for.
   // The gateway is told after the column is written, so a gateway that is down
   // cannot cost the customer the choice they just made.

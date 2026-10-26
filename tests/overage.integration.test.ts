@@ -17,6 +17,13 @@ import { reportOverage } from "@/server/usage-report";
 
 const hasDatabase = Boolean(process.env.DATABASE_URL);
 
+/**
+ * Who the setters record the change against. Plain strings: the audit keeps
+ * the account as columns rather than a relation, so these tests need no user
+ * row to move a setting — what they are about is the columns it moves.
+ */
+const by = { userId: "u_settings_test", email: "admin@example.test" };
+
 /** Inside October, so September is the month that has just closed. */
 const NOW = new Date("2026-10-07T12:00:00.000Z");
 const CLOSED = "2026-09";
@@ -137,7 +144,7 @@ describe.skipIf(!hasDatabase)("reporting a month of overage", () => {
 
   it("bills the cap, not the counter, for a month that ran past its ceiling", async () => {
     await subscribe();
-    await setSpendCap(tenantId, 100);
+    await setSpendCap(tenantId, 100, by);
     // Past the ceiling by a long way. The route refuses these as they are made,
     // but it refuses them after `meter` has counted them — so the counter the
     // job reads is above the cap whatever the route did.
@@ -153,7 +160,7 @@ describe.skipIf(!hasDatabase)("reporting a month of overage", () => {
 
   it("bills nothing at all for a workspace that capped itself at zero", async () => {
     await subscribe();
-    await setSpendCap(tenantId, 0);
+    await setSpendCap(tenantId, 0, by);
     await used(QUOTA + 900);
 
     // A ceiling the customer put back, so there is no figure and nothing is

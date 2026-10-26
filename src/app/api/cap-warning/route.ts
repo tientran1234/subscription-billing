@@ -43,7 +43,7 @@ export const GET = withSession(async (_request, { tenantId }) => {
   return Response.json({ warnAtPct: warnAt, inForcePct: capWarningPct(warnAt) });
 });
 
-export const POST = withSession(async (request, { tenantId }) => {
+export const POST = withSession(async (request, { tenantId, userId, email }) => {
   const parsed = Body.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return Response.json(
@@ -64,7 +64,8 @@ export const POST = withSession(async (request, { tenantId }) => {
     );
   }
 
-  await setCapWarningAt(tenantId, warnAtPct);
+  // The account off the session, as the cap's own route does it.
+  await setCapWarningAt(tenantId, warnAtPct, { userId, email });
   // 200 for the same reason the cap answers with one: the line is ours, so it
   // is in force for the very next request and there is nothing to wait for.
   return Response.json({ warnAtPct, inForcePct: capWarningPct(warnAtPct) });

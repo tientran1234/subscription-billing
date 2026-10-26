@@ -7,10 +7,18 @@
  * and both have to get the same answer for a column nobody has written yet: a
  * null is `UNCAPPED`, not a zero, and an unset line is the default, not a line
  * at nothing.
+ *
+ * Both writes take the account making them and move the column inside a
+ * transaction that records the move — see src/server/setting-history.ts for why
+ * the row and the column land together or not at all. There is deliberately no
+ * way to set either figure without saying who did: a cap that moved with nobody
+ * attached is the row the history exists to not have.
  */
 import { db } from "@/lib/db";
 import { UNCAPPED, type SpendCap } from "@/domain/spend-cap";
 import type { CapWarningAt } from "@/domain/cap-warning";
+import { settingValueOf } from "@/domain/setting-history";
+import { recordSettingChange, type SettingActor } from "./setting-history";
 
 /** A workspace's ceiling and the line below it, as one row answers for both. */
 export interface CapSettings {
@@ -30,8 +38,29 @@ export async function spendCapFor(tenantId: string): Promise<SpendCap> {
   return tenant?.overageCap ?? UNCAPPED;
 }
 
-export async function setSpendCap(tenantId: string, cap: SpendCap): Promise<void> {
-  await db.tenant.update({ where: { id: tenantId }, data: { overageCap: cap } });
+export async function setSpendCap(
+  tenantId: string,
+  cap: SpendCap,
+  by: SettingActor,
+): Promise<void> {
+  await db.$transaction(async (tx) => {
+    // Read before the update, because Prisma hands back the row as it is after
+    // one and the history needs to know whether anything moved. Inside the
+    // transaction rather than from the caller, so what is compared is the
+    // column rather than whatever a page was rendered with.
+    const before = await tx.tenant.findUnique({
+      where: { id: tenantId },
+      select: { overageCap: true },
+    });
+    await tx.tenant.update({ where: { id: tenantId }, data: { overageCap: cap } });
+    await recordSettingChange(tx, {
+      tenantId,
+      setting: "spend_cap",
+      previous: settingValueOf(before?.overageCap ?? UNCAPPED),
+      value: settingValueOf(cap),
+      changedBy: by,
+    });
+  });
 }
 
 /**
@@ -53,6 +82,23 @@ export async function capSettingsFor(tenantId: string): Promise<CapSettings> {
   return { cap: tenant?.overageCap ?? UNCAPPED, warnAt: tenant?.capWarnPct ?? null };
 }
 
-export async function setCapWarningAt(tenantId: string, at: CapWarningAt): Promise<void> {
-  await db.tenant.update({ where: { id: tenantId }, data: { capWarnPct: at } });
+export async function setCapWarningAt(
+  tenantId: string,
+  at: CapWarningAt,
+  by: SettingActor,
+): Promise<void> {
+  await db.$transaction(async (tx) => {
+    const before = await tx.tenant.findUnique({
+      where: { id: tenantId },
+      select: { capWarnPct: true },
+    });
+    await tx.tenant.update({ where: { id: tenantId }, data: { capWarnPct: at } });
+    await recordSettingChange(tx, {
+      tenantId,
+      setting: "cap_warning_pct",
+      previous: settingValueOf(before?.capWarnPct ?? null),
+      value: settingValueOf(at),
+      changedBy: by,
+    });
+  });
 }

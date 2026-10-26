@@ -30,7 +30,7 @@ export const GET = withSession(async (_request, { tenantId }) =>
   Response.json({ capUnits: await spendCapFor(tenantId) }),
 );
 
-export const POST = withSession(async (request, { tenantId }) => {
+export const POST = withSession(async (request, { tenantId, userId, email }) => {
   const parsed = Body.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return Response.json(
@@ -47,7 +47,10 @@ export const POST = withSession(async (request, { tenantId }) => {
     );
   }
 
-  await setSpendCap(tenantId, capUnits);
+  // The account off the session, never one named in the body: who moved a
+  // ceiling is recorded beside the move, and the body is the one place a
+  // caller could claim to be somebody else.
+  await setSpendCap(tenantId, capUnits, { userId, email });
   // 200 rather than the 202 a plan change answers with: there is nothing to
   // wait for here. A cap is ours, so it is in force for the very next request,
   // and no invoice has to be paid to make it true.

@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { PLANS } from "@/domain/entitlements";
 import { canChangeWorkspace, type Role } from "@/domain/role";
+import { isTrackedSetting, type TrackedSetting } from "@/domain/setting-history";
 import { SUBSCRIPTION_STATUSES } from "@/domain/subscription";
 import {
   KEY_STATES,
@@ -17,6 +18,7 @@ import {
 } from "@/domain/transactions";
 import { auth } from "@/lib/auth";
 import { roleHistoryOf } from "@/server/role-history";
+import { settingHistoryOf } from "@/server/setting-history";
 import { listKeyUsage, listSubscriptions } from "@/server/transactions";
 import { currentPeriod } from "@/server/usage";
 import { principalFrom, resolveRequestTenant } from "@/server/with-session";
@@ -144,17 +146,28 @@ export default async function AdminPage({
   const state = parseKeyState(first("state"));
   const period = parsePeriod(first("period"), currentPeriod());
 
-  const [subscriptions, keys, grants] = await Promise.all([
+  const [subscriptions, keys, grants, changes] = await Promise.all([
     listSubscriptions({ tenantId, filter, cursor: cursorFrom(first("subAfter")), limit }),
     listKeyUsage({ tenantId, state, period, cursor: cursorFrom(first("keyAfter")), limit }),
     // Unfiltered and uncursored, unlike the two above: it is a window of the
     // last few changes rather than a ledger to walk. See ROLE_HISTORY_WINDOW.
     roleHistoryOf(tenantId),
+    // The same, for the settings a workspace moves on itself. See
+    // SETTING_HISTORY_WINDOW.
+    settingHistoryOf(tenantId),
   ]);
 
   // Written out rather than folded over the roles, so adding one to
   // src/domain/role.ts is a compile error here instead of a blank cell.
   const roleNames: Record<Role, string> = { admin: t("roleAdmin"), member: t("roleMember") };
+
+  // The same, for the settings: adding one to src/domain/setting-history.ts is
+  // a compile error here rather than a row with no heading.
+  const settingNames: Record<TrackedSetting, string> = {
+    spend_cap: t("settingSpendCap"),
+    cap_warning_pct: t("settingWarningLine"),
+    notice_locale: t("settingNoticeLocale"),
+  };
 
   return (
     <main>
@@ -292,6 +305,46 @@ export default async function AdminPage({
                   <td>{grant.subjectEmail}</td>
                   <td>{roleNames[grant.role]}</td>
                   <td>{grant.grantedByEmail}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+
+      <section className="list">
+        <h2>{t("settings")}</h2>
+        <p className="sub">{t("settingsNote")}</p>
+
+        {changes.length === 0 ? (
+          <p className="sub">{t("noSettings")}</p>
+        ) : (
+          <table className="rows">
+            <thead>
+              <tr>
+                <th>{t("changed")}</th>
+                <th>{t("setting")}</th>
+                <th>{t("value")}</th>
+                <th>{t("changedBy")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {changes.map((change) => (
+                <tr key={change.id}>
+                  <td>{day(change.changedAt)}</td>
+                  {/* The name as it was written when this build has no heading
+                      for it: a row under the wrong setting, or none at all,
+                      would be worse than an unfamiliar name. */}
+                  <td>
+                    {isTrackedSetting(change.setting)
+                      ? settingNames[change.setting]
+                      : change.setting}
+                  </td>
+                  {/* Null is what the workspace chose — the ceiling lifted, or
+                      the line put back to its default — not a value missing. */}
+                  <td>{change.value ?? t("settingNone")}</td>
+                  {/* The address as it was recorded: the account may be gone. */}
+                  <td>{change.changedByEmail}</td>
                 </tr>
               ))}
             </tbody>
