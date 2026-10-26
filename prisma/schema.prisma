@@ -51,6 +51,7 @@ model Tenant {
   capNotices    CapNotice[]
   replays       EventReplay[]
   roleGrants    RoleGrant[]
+  settingChanges SettingChange[]
   createdAt     DateTime        @default(now())
 }
 
@@ -343,6 +344,43 @@ model RoleGrant {
   grantedAt       DateTime @default(now())
 
   @@index([tenantId, grantedAt])
+}
+
+/// One setting this workspace moved: which one, what it became, by whom, when.
+///
+/// Append-only, and the mirror of RoleGrant for the settings a workspace sets
+/// on itself — the ceiling on its add-on, the line below it a warning goes out
+/// at, and the language it is written to in. Each is a column that overwrites
+/// the one before it, so this is the only place the sequence of those writes
+/// survives. The plan is not among them: it moves on the gateway's paid invoice
+/// rather than on a form here, and what it used to be is readable on the
+/// invoices that billed it.
+model SettingChange {
+  id              String   @id @default(cuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// Which setting moved, as one of the names in src/domain/setting-history.ts
+  /// rather than the column it shadows: what a reader wants is which setting
+  /// this was, which outlives the day that column is renamed.
+  setting         String
+  /// What it became, as text — `SettingValue` in that same file says why one
+  /// column holds a figure and a language alike. Null is a value here and not a
+  /// missing one: it is the cap lifted, or the warning line put back to the
+  /// default, which is a change worth a row like any other.
+  ///
+  /// There is no column for the value it replaced, exactly as RoleGrant has
+  /// none for the role it replaced. A write that set a setting to what it
+  /// already held is not recorded at all, so a row here always means the
+  /// setting became this — and the row before it says what it was.
+  value           String?
+  /// Who changed it, as plain columns rather than a relation to User: an audit
+  /// row has to outlive the account it names, and the address is recorded as it
+  /// was at the time, the way RoleGrant records the ones it names.
+  changedByUserId String
+  changedByEmail  String
+  changedAt       DateTime @default(now())
+
+  @@index([tenantId, changedAt])
 }
 
 /// Metered usage per tenant, per feature, per UTC month.
