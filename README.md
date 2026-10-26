@@ -273,6 +273,26 @@ transactions page beside the replay audit, which is where this workspace's own
 ledger is read; nothing checks them, and nothing may — a permission that read the
 past rather than the column would be a second answer to who may act now.
 
+**A setting a workspace moves on itself leaves a row behind too.** The ceiling
+on the add-on, the line below it a warning goes out at and the language the
+notices are composed in are the three settings a customer sets here, and each
+was a column that overwrote the one before: a workspace could read what its cap
+is today and not who dropped it under a month of usage, which is the question
+asked after the change nobody meant to make. Each setter takes the account off
+the session and writes the change in the transaction that moves the column, so
+no row can name a value the column never took and no move can go unrecorded. A
+save that left the setting as it was records nothing, which is what keeps the
+date beside a figure the date it was set rather than the date somebody last
+opened the page and pressed save — the account page posts whatever is in the
+box, so those arrive in the ordinary course of things. What a setting became is
+kept as text, because the value is only ever read back to be shown: the column
+is what decides anything, and a history consulted instead would be a second
+answer to what a workspace agreed to be billed. Null is a value among them
+rather than a blank — the cap lifted, the line put back to its default — and
+the rows are listed on the transactions page beside the role grants, with the
+setting named as it was written whenever this build has no heading for it,
+because a row under the wrong setting is worse than an unfamiliar name.
+
 **A price is per currency, and the currency is chosen once.**
 A plan carries an amount per currency rather than one converted at read time:
 a rate that moves would reprice the catalogue between the page a customer read
@@ -595,6 +615,8 @@ src/
                        administrable while people come and go
     role-history.ts    which of the writes that set a role is worth recording,
                        and how far back the workspace is shown
+    setting-history.ts which of the writes that set a figure is worth
+                       recording, and what the table holds instead of it
     invite.ts          who may be offered a seat, and the one an invite holds
     dunning.ts         which status a customer is worth writing to about
     replay.ts          who may replay a provider event, and whose it has to be
@@ -619,6 +641,8 @@ src/
     replay.ts           re-fetch one event, re-apply it, record who asked
     role-history.ts     write down a role as it is granted, inside the caller's
                         own transaction, and read the grants back
+    setting-history.ts  write down a setting as it moves, inside the setter's
+                        own transaction, and read the changes back
     assistant.ts        ask whichever model this deployment is wired to
     mailer.ts           the SMTP seam, so tests can read what was composed
     with-session.ts     session → tenant, for human callers
@@ -733,15 +757,19 @@ on every push, and the end-to-end suite beside it in a job with a browser.
   keep true rather than a rule to read. "Admin" on the transactions page is
   still not one of these: it means the workspace the caller belongs to, not a
   view across tenants, and there is no role here that sees past one workspace.
-- **A past for anything but the roles.** The grants are kept now, and nothing
-  else here is: a cap that moves, a plan that changes and a language that is
-  set each overwrite the column before them, and what they used to be is
-  readable only in the invoices and the notices that followed. Roles earned the
-  rows because they are the one setting whose *effect* is what somebody else may
-  do, so the question is asked about a person rather than about a figure. The
-  founding admin is not among them either — the account that opened a workspace
-  holds the role from the moment the workspace existed, which is nobody's grant
-  to record, and the membership's own date says when.
+- **A past for the plan, or for the value a change replaced.** The grants are
+  kept, and so are the three settings a workspace sets on itself — the cap, the
+  warning line and the notice language. The plan is not: it moves on a paid
+  invoice rather than on a form here, so what it used to be is already readable
+  on the invoices that billed it, and a row of ours beside them would be a
+  second answer to what a customer was on in March. Neither table holds what
+  the setting or the role used to be, only what it became: a row is written
+  only when something moved, so the row below it is the value before, and a
+  second column saying so would be the same fact stored twice — wrong the first
+  time one of them was backfilled. The founding admin is not among the grants
+  either — the account that opened a workspace holds the role from the moment
+  the workspace existed, which is nobody's grant to record, and the
+  membership's own date says when.
 - **Two workspaces open at once, or a workspace in the url.** The choice a
   picker makes is one cookie for the whole site, so a second tab is the same
   workspace as the first and switching in one switches both — and a page's
